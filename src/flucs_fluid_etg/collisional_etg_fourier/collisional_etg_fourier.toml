@@ -1,0 +1,13 @@
+[parameters]
+kappaT = 1.0
+kappaN = 0.0
+kappaB = 0.0
+charge = 1.0
+tratio = 1.0
+
+# Collisional operator factors 
+# If not specified, will be computed from tratio and charge
+coeffa = -1.0
+coeffb = -1.0
+coeffc = -1.0
+
