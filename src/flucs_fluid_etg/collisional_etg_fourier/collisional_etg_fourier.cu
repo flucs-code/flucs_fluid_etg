@@ -213,17 +213,6 @@ struct FreeEnergy_Functor {
     }
 };
 
-struct FreeEnergyHyper_Functor {
-    const FLUCS_COMPLEX* __restrict__ fields;
-    __device__ __forceinline__ FLUCS_FLOAT operator()(int index) const {
-    
-        FLUCS_FLOAT hypervisc = get_hypervisc(index);
-        FreeEnergy_Functor free_energy_functor = FreeEnergy_Functor{fields, hypervisc};
-
-        return 2 * free_energy_functor(index);
-    }
-};
-
 struct FreeEnergyColl_Functor {
     const FLUCS_COMPLEX* __restrict__ fields;
     __device__ __forceinline__ FLUCS_FLOAT operator()(int index) const {
@@ -288,19 +277,6 @@ void free_energy_collisional_loss_kzkx(
             FLOAT_ONE,
             output,
             FreeEnergyColl_Functor{fields}
-        );
-
-}
-
-__global__
-void free_energy_hyper_loss_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            FreeEnergyHyper_Functor{fields}
         );
 
 }

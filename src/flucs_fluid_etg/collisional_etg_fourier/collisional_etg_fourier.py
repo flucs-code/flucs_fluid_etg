@@ -3,6 +3,7 @@ ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
 
 """
+from typing import ClassVar
 
 import cupy as cp
 import numpy as np
@@ -11,9 +12,9 @@ from cupy.cuda import cufft
 from .collisional_etg_fourier_diagnostics import HeatfluxDiag
 from .collisional_etg_fourier_diagnostics import FreeEnergyDiag
 
+from flucs.diagnostic import FlucsDiagnostic
 from flucs.utilities.cupy import cupy_set_device_pointer
 from flucs.solvers.fourier.fourier_system import FourierSystem
-from flucs.solvers.fourier.fourier_system_diagnostics import LinearSpectrumDiag
 
 
 class CollisionalETGFourier(FourierSystem):
@@ -51,8 +52,9 @@ class CollisionalETGFourier(FourierSystem):
     find_nonlinear_bits_kernel: cp.RawKernel
 
     # Supported diagnostics
-    diags_dict = {"heatflux": HeatfluxDiag,
-                  "free_energy": FreeEnergyDiag}
+    diags: ClassVar[set[type[FlucsDiagnostic]]] = {
+        HeatfluxDiag, FreeEnergyDiag
+    }
 
     def setup(self):
         """Prepares the system for the solver."""

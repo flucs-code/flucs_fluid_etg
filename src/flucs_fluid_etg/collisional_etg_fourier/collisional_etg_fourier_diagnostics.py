@@ -98,11 +98,36 @@ class FreeEnergyDiag(FlucsDiagnostic):
         ))
 
         self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_hyper",
+            name="dWdt_hyperdissipation_perp",
             shape=(),
             dimensions={},
             is_complex=False
-        ))
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyperdissipation_kx",
+            shape=(),
+            dimensions={},
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyperdissipation_ky",
+            shape=(),
+            dimensions={},
+            is_complex=False
+            )
+        )
+
+        self.add_var(FlucsDiagnosticVariable(
+            name="dWdt_hyperdissipation_kz",
+            shape=(),
+            dimensions={},
+            is_complex=False
+            )
+        )
 
         self.add_var(FlucsDiagnosticVariable(
             name="dWdt_error",
@@ -127,12 +152,17 @@ class FreeEnergyDiag(FlucsDiagnostic):
         self.dW_kzkx_kernel = self.system.cupy_module.get_function("dW_kzkx")
         self.free_energy_kzkx_kernel = self.system.cupy_module.get_function("free_energy_kzkx")
         self.free_energy_collisional_loss_kzkx_kernel = self.system.cupy_module.get_function("free_energy_collisional_loss_kzkx")
-        self.free_energy_hyper_loss_kzkx_kernel = self.system.cupy_module.get_function("free_energy_hyper_loss_kzkx")
         self.last_axis_sum_nx_kernel = self.system.cupy_module.get_function("last_axis_sum_nx")
         self.last_axis_sum_nz_kernel = self.system.cupy_module.get_function("last_axis_sum_nz")
         self.real_last_axis_sum_nx_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nx")
         self.real_last_axis_sum_nz_kernel = self.system.cupy_module.get_function("real_last_axis_sum_nz")
 
+        self.hyperdissipation_magnitude_kernels = {
+            "perp": self.system.cupy_module.get_function("hyperdissipation_perp_magnitude"),
+            "kx": self.system.cupy_module.get_function("hyperdissipation_kx_magnitude"),
+            "ky": self.system.cupy_module.get_function("hyperdissipation_ky_magnitude"),
+            "kz": self.system.cupy_module.get_function("hyperdissipation_kz_magnitude"),
+        }
 
     def execute(self):
         # W
@@ -230,26 +260,49 @@ class FreeEnergyDiag(FlucsDiagnostic):
         dWdt_inj = -self.system.input["parameters.kappaT"] * 1.5 * self.complex_result.get().item().real
         self.save_data("dWdt_inj", dWdt_inj)
 
-        # dW/dt_hyper
-        self.free_energy_hyper_loss_kzkx_kernel(
-                (self.system.nx * self.system.nz,),
-                (BLOCK_SIZE,),
-                (fields, self.temp_zx),
-                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+        # Hyperdissipation
 
-        self.real_last_axis_sum_nx_kernel(
-                (self.system.nz,),
-                (BLOCK_SIZE,),
-                (self.temp_zx, self.temp_z),
-                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+        # Free energy is a weighted sum of phi and T with the following weights
+        charge = self.system.input["parameters.charge"]
+        tratio = self.system.input["parameters.tratio"]
+        taubar = tratio / charge
 
-        self.real_last_axis_sum_nz_kernel(
-                (1,),
-                (BLOCK_SIZE,),
-                (self.temp_z, self.result),
-                shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+        # Factors of 2 account for the factor of 1/2
+        # the one gets out of the partial_t derivatives
+        # of quadratic quantities
+        phi_weight = 2 * (1 + 1 / taubar) / (2 * taubar)
+        T_weight = 2 * 0.75
 
-        dWdt_hyper = -self.result.get().item()
-        self.save_data("dWdt_hyper", dWdt_hyper)
+        dWdt_hyperdissipation_total = 0.0
+        for component, kernel in self.hyperdissipation_magnitude_kernels.items():
+            dWdt_hyperdissipation_component = 0.0
 
-        self.save_data("dWdt_error", dWdt - dWdt_inj - dWdt_coll - dWdt_hyper)
+            for field, weight in ((phi, phi_weight), (T, T_weight)):
+                kernel(
+                    (self.system.nx * self.system.nz,),
+                    (BLOCK_SIZE,),
+                    (field, self.temp_zx),
+                    shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+                self.real_last_axis_sum_nx_kernel(
+                    (self.system.nz,),
+                    (BLOCK_SIZE,),
+                    (self.temp_zx, self.temp_z),
+                    shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+                self.real_last_axis_sum_nz_kernel(
+                        (1,),
+                        (BLOCK_SIZE,),
+                        (self.temp_z, self.result),
+                        shared_mem=THREADS_PER_WARP * self.system.float().nbytes)
+
+                dWdt_hyperdissipation_component += -self.result.get().item() * weight
+
+            self.save_data(
+                f"dWdt_hyperdissipation_{component}",
+                dWdt_hyperdissipation_component
+            )
+            dWdt_hyperdissipation_total += dWdt_hyperdissipation_component
+
+
+        self.save_data("dWdt_error", dWdt - dWdt_inj - dWdt_coll - dWdt_hyperdissipation_total)
