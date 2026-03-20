@@ -56,12 +56,12 @@ class CollisionalETGFourier(FourierSystem):
         HeatfluxDiag, FreeEnergyDiag
     }
 
-    def setup(self):
+    def _setup_system(self):
         """Prepares the system for the solver."""
 
         self.allocate_memory()
         # self.setup_kernels()
-        super().setup()
+        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -121,18 +121,21 @@ class CollisionalETGFourier(FourierSystem):
             # 0 dxphi,
             # 1 dyphi,
             # 2 T
-            self.dft_derivatives = cp.zeros([3,
-                                             self.padded_nz,
-                                             self.padded_nx,
-                                             self.half_padded_ny],
-                                            dtype=self.complex)
+            self.dft_derivatives_and_bits = cp.zeros([3,
+                                                      self.padded_nz,
+                                                      self.padded_nx,
+                                                      self.half_padded_ny],
+                                                     dtype=self.complex)
 
-            self.real_derivatives = cp.zeros([3,
-                                              self.padded_nz,
-                                              self.padded_nx,
-                                              self.padded_ny],
-                                             dtype=self.float)
+            self.real_derivatives_and_bits = cp.zeros([3,
+                                                       self.padded_nz,
+                                                       self.padded_nx,
+                                                       self.padded_ny],
+                                                      dtype=self.float)
 
+            # We reuse the memory from dft_derivatives and real_derivatives
+            # NEED TO ACCOUNT FOR THIS IN THE KERNELS
+            #
             # These 'NL bits' are the terms which are calculated in real space.
             # They are transformed back to Fourier space, where any additional
             # derivatives are taken by multiplying the NL bits by the
@@ -141,26 +144,23 @@ class CollisionalETGFourier(FourierSystem):
             # 1 dyphi * T
             # We calculate {phi, T} by calculating
             # {phi, T} = dy (dxphi * T) - dx (dyphi * T)
-            self.dft_bits = cp.zeros([2,
-                                      self.padded_nz,
-                                      self.padded_nx,
-                                      self.half_padded_ny],
-                                     dtype=self.complex)
 
-            self.real_bits = cp.zeros([2,
-                                       self.padded_nz,
-                                       self.padded_nx,
-                                       self.padded_ny],
-                                      dtype=self.float)
+            # FourierSystem expects a dft_bits array to exist
+            self.dft_bits = self.dft_derivatives_and_bits
+
+            # self.dft_bits = cp.zeros([2,
+            #                           self.padded_nz,
+            #                           self.padded_nx,
+            #                           self.half_padded_ny],
+            #                          dtype=self.complex)
+            #
+            # self.real_bits = cp.zeros([2,
+            #                            self.padded_nz,
+            #                            self.padded_nx,
+            #                            self.padded_ny],
+            #                           dtype=self.float)
 
             self.cfl_rate = cp.zeros([1], dtype=self.float)
-
-            if self.input["setup.precision"] == "single":
-                self.fft_c2r_plan_type = cufft.CUFFT_C2R
-                self.fft_r2c_plan_type = cufft.CUFFT_R2C
-            else:
-                self.fft_c2r_plan_type = cufft.CUFFT_Z2D
-                self.fft_r2c_plan_type = cufft.CUFFT_D2Z
 
             self.plan_c2r = cufft.PlanNd(
                 shape=tuple([self.padded_nz, self.padded_nx, self.padded_ny]),
@@ -235,23 +235,23 @@ class CollisionalETGFourier(FourierSystem):
     def compile_cupy_module(self) -> None:
         # System-specific constants for the kernels
 
-        self.module_options.define_constant("KAPPAT",
+        self.module_options.define_float("KAPPAT",
                                             self.input["parameters.kappaT"])
-        self.module_options.define_constant("KAPPAN",
+        self.module_options.define_float("KAPPAN",
                                             self.input["parameters.kappaN"])
-        self.module_options.define_constant("KAPPAB",
+        self.module_options.define_float("KAPPAB",
                                             self.input["parameters.kappaB"])
 
-        self.module_options.define_constant("COEFFA",
+        self.module_options.define_float("COEFFA",
                                             self.input["parameters.coeffa"])
-        self.module_options.define_constant("COEFFB",
+        self.module_options.define_float("COEFFB",
                                             self.input["parameters.coeffb"])
-        self.module_options.define_constant("COEFFC",
+        self.module_options.define_float("COEFFC",
                                             self.input["parameters.coeffc"])
 
         charge = self.input["parameters.charge"]
         tratio = self.input["parameters.tratio"]
-        self.module_options.define_constant("TAUBAR",
+        self.module_options.define_float("TAUBAR",
                                             tratio / charge)
 
         # Call this to compile the module
@@ -278,23 +278,22 @@ class CollisionalETGFourier(FourierSystem):
         self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
                                      (self.cuda_block_size,),
                                      (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives,
+                                      self.dft_derivatives_and_bits,
                                       self.cfl_rate))
 
-        self.plan_c2r.fft(self.dft_derivatives,
-                          self.real_derivatives,
+        self.plan_c2r.fft(self.dft_derivatives_and_bits,
+                          self.real_derivatives_and_bits,
                           cufft.CUFFT_INVERSE)
 
         self.find_nonlinear_bits_kernel(
             (self.full_padded_cuda_grid_size,),
             (self.cuda_block_size,),
-            (self.real_derivatives,
-             self.real_bits,
+            (self.real_derivatives_and_bits,
              self.cfl_rate),
             shared_mem=self.nonlinear_bits_shared_mem
         )
 
-        self.plan_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.plan_r2c.fft(self.real_derivatives_and_bits, self.dft_derivatives_and_bits, cufft.CUFFT_FORWARD)
 
         super().calculate_nonlinear_terms()
 
