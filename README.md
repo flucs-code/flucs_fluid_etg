@@ -1,2 +1,5 @@
 # flucs_fluid_etg
-A collection of flucs systems for various fluid models of ETG turbulence
+A collection of $\texttt{FLUCS}$ `systems` for various fluid models of electron-temperature-gradient (ETG) turbulence.
+
+This package is a plugin for `flucs`. Installation instructions can be found at the [core flucs repository](https://github.com/flucs-code/flucs). 
+

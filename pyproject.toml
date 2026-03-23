@@ -1,0 +1,25 @@
+[project]
+name = "flucs_fluid_etg"
+description = "A collection of flucs systems for various fluid models of ETG turbulence"
+authors = [
+    {name = "P. G. Ivanov"}, 
+    {name = "T. Adkins", email = "tadkins@pppl.gov"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["flucs"]
+dynamic = ["version"]
+
+[build-system]
+requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+write_to = "src/flucs_fluid_etg/_version.py"   # create this at build/install time
+fallback_version = "0.0"    
+
+[project.entry-points."flucs.systems"]
+CollisionalETGFourier = "flucs_fluid_etg.collisional_etg_fourier.collisional_etg_fourier:CollisionalETGFourier"
