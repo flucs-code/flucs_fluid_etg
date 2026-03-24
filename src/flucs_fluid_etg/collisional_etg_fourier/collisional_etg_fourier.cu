@@ -63,8 +63,8 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
         cfl_rate[0] = 0;
 
     // Check if mode should be zeroed
-    if (   (padded_ikx >= HALF_NX && padded_ikx < HALF_NX - NX + PADDED_NX)
-        || (padded_ikz >= HALF_NZ && padded_ikz < HALF_NZ - NZ + PADDED_NZ)
+    if (   (padded_ikx >= HALF_NX && padded_ikx < (HALF_NX + PADDED_NX) - NX)
+        || (padded_ikz >= HALF_NZ && padded_ikz < (HALF_NZ + PADDED_NZ) - NZ)
         || padded_iky >= HALF_NY){
 
         dft_derivatives[padded_index] = 0;
