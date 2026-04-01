@@ -282,4 +282,64 @@ void free_energy_collisional_loss_kzkx(
 
 }
 
+__global__
+void W_hyperdissipation_perp_kzkx(
+    const FLUCS_COMPLEX* fields,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            FLOAT_ONE,
+            output,
+            HyperdissipationPerp_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+            }
+        );
+
+}
+
+__global__
+void W_hyperdissipation_kx_kzkx(
+    const FLUCS_COMPLEX* fields,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            FLOAT_ONE,
+            output,
+            HyperdissipationKx_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+            }
+        );
+
+}
+
+__global__
+void W_hyperdissipation_ky_kzkx(
+    const FLUCS_COMPLEX* fields,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            FLOAT_ONE,
+            output,
+            HyperdissipationKy_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+            }
+        );
+
+}
+
+__global__
+void W_hyperdissipation_kz_kzkx(
+    const FLUCS_COMPLEX* fields,
+    FLUCS_FLOAT* output){
+
+    add_and_sum_last_axis<HALF_NY, true>(
+            FLOAT_ONE,
+            output,
+            HyperdissipationKz_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+            }
+        );
+
+}
+
 } // extern "C"
