@@ -299,3 +299,56 @@ class CollisionalETGFourier(FourierSystem):
 
     def finish_time_step(self) -> None:
         super().finish_time_step()
+
+    def compute_linear_matrix_reference(self) -> np.ndarray:
+        # Initialise linear matrix
+        linear_matrix = np.zeros(
+            (
+                self.number_of_fields,
+                self.number_of_fields,
+                *self.half_unpadded_tuple
+            ),
+            dtype=self.complex,
+        )
+
+        # Get wavenumbers
+        kx, ky, kz = self.get_broadcast_wavenumbers()
+
+        # Get parameters
+        kappaT = self.input["parameters.kappaT"]
+        kappaN = self.input["parameters.kappaN"]
+        kappaB = self.input["parameters.kappaB"]
+
+        coeffa = self.input["parameters.coeffa"]
+        coeffb = self.input["parameters.coeffb"]
+        coeffc = self.input["parameters.coeffc"]
+
+        taubar = (
+            self.input["parameters.tratio"] / self.input["parameters.charge"]
+        )
+
+        # phi-phi
+        linear_matrix[0, 0, :, :, :] = (
+            coeffa * (1.0 + taubar) * (kz**2)
+            + 1j * (2.0 * (1.0 + taubar) * kappaB - taubar * kappaN) * ky
+        )
+
+        # phi-T
+        linear_matrix[0, 1, :, :, :] = (
+            -taubar * (coeffa + coeffb) * (kz**2)
+            - 1j * 2.0 * taubar * kappaB * ky
+        )
+
+        # T-phi
+        linear_matrix[1, 0, :, :, :] = (
+            -(2.0 / 3.0) * (coeffa + coeffb) * (1.0 + 1.0 / taubar) * (kz**2)
+            + 1j * (kappaT - (4.0 / 3.0) * (1.0 + 1.0 / taubar) * kappaB) * ky
+        )
+
+        # T-T
+        linear_matrix[1, 1, :, :, :] = (
+            (2.0 / 3.0) * (coeffc + coeffa * (1.0 + coeffb/coeffa)**2) * (kz**2)
+            + 1j * (14.0 / 3.0) * kappaB * ky
+        )
+
+        return linear_matrix
