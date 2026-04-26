@@ -300,44 +300,55 @@ class CollisionalETGFourier(FourierSystem):
     def finish_time_step(self) -> None:
         super().finish_time_step()
 
-    def compute_complex_omega(self):
-        raise NotImplemented("Why are you here?")
+    def compute_linear_matrix_reference(self) -> np.ndarray:
+        # Initialise linear matrix
+        linear_matrix = np.zeros(
+            (
+                self.number_of_fields,
+                self.number_of_fields,
+                *self.half_unpadded_tuple
+            ),
+            dtype=self.complex,
+        )
 
-        linear_matrix = np.zeros(self.half_unpadded_tuple + (2, 2),
-                                 dtype=self.complex)
+        # Get wavenumbers
+        kx, ky, kz = self.get_broadcast_wavenumbers()
 
-        kxs, kys, kzs = self.get_broadcast_wavenumbers()
-        kperp2 = kxs**2 + kys**2
-
+        # Get parameters
         kappaT = self.input["parameters.kappaT"]
+        kappaN = self.input["parameters.kappaN"]
         kappaB = self.input["parameters.kappaB"]
-        kappan = self.input["parameters.kappan"]
-        chi = self.input["parameters.chi"]
-        a = self.input["parameters.a"]
-        b = self.input["parameters.b"]
 
-        eta = 1 + kperp2
-        # zonal response
-        eta[0, :, 0] = kperp2[0, :, 0]
+        coeffa = self.input["parameters.coeffa"]
+        coeffb = self.input["parameters.coeffb"]
+        coeffc = self.input["parameters.coeffc"]
+
+        taubar = (
+            self.input["parameters.tratio"] / self.input["parameters.charge"]
+        )
 
         # phi-phi
-        linear_matrix[:, :, :, 0, 0] = (
-                    a*chi*(kperp2**2)
-                    - 1j*(kappaB - kappan)*kys
-                    - 1j*kappaT*kperp2*kys) / eta
+        linear_matrix[0, 0, :, :, :] = (
+            coeffa * (1.0 + taubar) * (kz**2)
+            + 1j * (2.0 * (1.0 + taubar) * kappaB - taubar * kappaN) * ky
+        )
 
         # phi-T
-        linear_matrix[:, :, :, 0, 1] = (
-                    - b*chi*(kperp2**2)
-                    - 1j*kappaB*kys) / eta
+        linear_matrix[0, 1, :, :, :] = (
+            -taubar * (coeffa + coeffb) * (kz**2)
+            - 1j * 2.0 * taubar * kappaB * ky
+        )
 
         # T-phi
-        linear_matrix[:, :, :, 1, 0] = 1j*kappaT*kys
+        linear_matrix[1, 0, :, :, :] = (
+            -(2.0 / 3.0) * (coeffa + coeffb) * (1.0 + 1.0 / taubar) * (kz**2)
+            + 1j * (kappaT - (4.0 / 3.0) * (1.0 + 1.0 / taubar) * kappaB) * ky
+        )
 
         # T-T
-        linear_matrix[:, :, :, 1, 1] = chi*kperp2
+        linear_matrix[1, 1, :, :, :] = (
+            (2.0 / 3.0) * (coeffc + coeffa * (1.0 + coeffb/coeffa)**2) * (kz**2)
+            + 1j * (14.0 / 3.0) * kappaB * ky
+        )
 
-        # Fix (0,0,0) mode
-        linear_matrix[0, 0, 0, :, :] = np.identity(2)
-
-        return -1j*np.linalg.eigvals(linear_matrix)
+        return linear_matrix
