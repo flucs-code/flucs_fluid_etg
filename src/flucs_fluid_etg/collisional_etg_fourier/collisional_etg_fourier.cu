@@ -148,44 +148,40 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + PADDEDSIZE] = dyphi * T;
 }
 
-__device__ void add_nonlinear_terms(const size_t index,
-                                    const FLUCS_FLOAT dt,
-                                    const long long current_step,
-                                    const FLUCS_FLOAT AB0,
-                                    const FLUCS_FLOAT AB1,
-                                    const FLUCS_FLOAT AB2,
-                                    const FLUCS_COMPLEX* dft_bits,
-                                    FLUCS_COMPLEX* rhs_fields){
-
+__device__ void get_nonlinear_terms(
+    const size_t index,
+    const FLUCS_COMPLEX* dft_bits,
+    FLUCS_COMPLEX* nonlinear_terms
+){
+    // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
     const size_t ikx = indices.ikx;
     const size_t iky = indices.iky;
     const size_t ikz = indices.ikz;
 
+    // Initialise nonlinear terms
+    nonlinear_terms[0] = FLUCS_COMPLEX(0, 0);
+
+    // Wavenumbers and indices 
     const FLUCS_FLOAT kx = kx_from_ikx(ikx);
     const FLUCS_FLOAT ky = ky_from_iky(iky);
 
     const size_t padded_ikx = padded_ikx_from_ikx(ikx);
     const size_t padded_ikz = padded_ikz_from_ikz(ikz);
-
     const size_t padded_index = index_from_3d<PADDED_NZ, PADDED_NX, HALF_PADDED_NY>(padded_ikz, padded_ikx, iky);
 
-    const FLUCS_COMPLEX TNL = DFT_PADDEDSIZE_FACTOR * (
-                              FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
+    // Calculate nonlinear terms
+    nonlinear_terms[0] = DFT_PADDEDSIZE_FACTOR * (
+                            + FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
                                              ky * dft_bits[padded_index].real())
-                             +FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
+                            + FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
                                             -kx * dft_bits[padded_index + HALFPADDEDSIZE].real()));
 
-    const size_t multistep_index_0 = ((current_step      % 3 + 3) % 3) * HALFUNPADDEDSIZE + index;
-    const size_t multistep_index_1 = ((current_step + 2) % 3)          * HALFUNPADDEDSIZE + index;
-    const size_t multistep_index_2 = ((current_step + 1) % 3)          * HALFUNPADDEDSIZE + index;
+}
 
-    // T
-    rhs_fields[1] -= dt * (AB0*TNL
-                           +AB1*multistep_nonlinear_terms[multistep_index_1]
-                           +AB2*multistep_nonlinear_terms[multistep_index_2]);
-
-    multistep_nonlinear_terms[multistep_index_0] = TNL;
+__device__ __forceinline__
+int nonlinear_term_field_index(const int term_index) {
+    return 1; // The nonlinear term appears in the T equation
 }
 
 __global__

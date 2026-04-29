@@ -1,7 +1,7 @@
-"""Pseudospectral Fourier implementation of the Ivanov et al. (2020) 2D fluid
-ITG system. The nonlinear term is handled explicitly using the Adams-Bashforth
+"""
+Pseudospectral Fourier implementation of collisional ETG model of Adkins et al.
+(2023).The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
-
 """
 from typing import ClassVar
 
@@ -18,35 +18,18 @@ from flucs.solvers.fourier.fourier_system import FourierSystem
 
 
 class CollisionalETGFourier(FourierSystem):
-    """Fourier solver for the 2D system."""
+    """Fourier solver for the 3D collisional ETG system."""
     number_of_fields = 2
+    number_of_fields_nonlinear = 1
+    number_of_dft_derivatives = 3
+    number_of_dft_bits = 2
 
     # Direct pointers to the phi and T arrays
     phi: list
     T: list
 
-    # Nonlinear terms
-    nonlinear_terms: list
-
-    # Derivatives and 'bits' used for the nonlinear terms
-    dft_derivatives: cp.ndarray
-    real_derivatives: cp.ndarray
-
-    dft_bits: cp.ndarray
-    real_bits: cp.ndarray
-    real_dxphi: cp.ndarray
-    real_dxphi_zonal: cp.ndarray
-
-    # DFT plans
-    plan_r2c: cufft.PlanNd
-    plan_c2r: cufft.PlanNd
-
-    # CUDA grids
+    # CUDA grids and kernels 
     nonlinear_bits_shared_mem: int
-
-    # CUDA FFTs
-    fft_c2r_plan_type: int
-    fft_r2c_plan_type: int
 
     find_derivatives_kernel: cp.RawKernel
     find_nonlinear_bits_kernel: cp.RawKernel
@@ -55,13 +38,6 @@ class CollisionalETGFourier(FourierSystem):
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
         HeatfluxDiag, FreeEnergyDiag
     }
-
-    def _setup_system(self):
-        """Prepares the system for the solver."""
-
-        self.allocate_memory()
-        # self.setup_kernels()
-        super()._setup_system()
 
     def ready(self):
         # Anything system-specific goes here
@@ -77,17 +53,17 @@ class CollisionalETGFourier(FourierSystem):
 
         super().ready()
 
-    def allocate_memory(self):
+    def _allocate_memory(self):
         # GPU arrays
 
-        # For the field arrays, we need to keep the fields
-        # at the current time step and the previous one.
+        # First, call FourierSystem's method which allocates
+        # self.fields among other things.
+        super()._allocate_memory(
+            allocate_derivatives_and_bits=True,
+            combine_derivatives_and_bits=True
+        )
 
-        self.fields = [cp.zeros((2, self.nz, self.nx, self.half_ny),
-                                dtype=self.complex),
-                       cp.zeros((2, self.nz, self.nx, self.half_ny),
-                                dtype=self.complex)]
-
+        # Direct pointers to fields
         self.phi = [cp.ndarray((self.nz, self.nx, self.half_ny),
                                dtype=self.complex,
                                memptr=self.fields[0][0, 0, 0, 0].data),
@@ -102,93 +78,19 @@ class CollisionalETGFourier(FourierSystem):
                              dtype=self.complex,
                              memptr=self.fields[1][1, 0, 0, 0].data),]
 
-        # when running linearly, need something to pass to the kernels
-        # this is unused
-        self.dft_bits = cp.zeros(1, dtype=self.complex)
+        # All fields and derivatives to be transformed to real space
+        # are kept in one huge array (dft_derivatives).
+        # The first index indexes the fields and it's meaning is
+        # 0 dxphi,
+        # 1 dyphi,
+        # 2 T
 
-        if not self.input["setup.linear"]:
-            # For the nonlinear terms, we need to keep terms at the current
-            # time step + terms from the past 2 time steps (since we will be
-            # using AB3)
-            # The nonlinear terms are indexed as (step, field, kz, kx, ky)
-            self.multistep_nonlinear_terms = cp.zeros((3, 1, self.nz, self.nx,
-                                                       self.half_ny),
-                                                      dtype=self.complex)
+        # The NL bits here are
+        # 0 dxphi * T
+        # 1 dyphi * T
 
-            # All fields and derivatives to be transformed to real space
-            # are kept in one huge array (dft_derivatives).
-            # The first index indexes the fields and it's meaning is
-            # 0 dxphi,
-            # 1 dyphi,
-            # 2 T
-            self.dft_derivatives_and_bits = cp.zeros([3,
-                                                      self.padded_nz,
-                                                      self.padded_nx,
-                                                      self.half_padded_ny],
-                                                     dtype=self.complex)
-
-            self.real_derivatives_and_bits = cp.zeros([3,
-                                                       self.padded_nz,
-                                                       self.padded_nx,
-                                                       self.padded_ny],
-                                                      dtype=self.float)
-
-            # We reuse the memory from dft_derivatives and real_derivatives
-            # NEED TO ACCOUNT FOR THIS IN THE KERNELS
-            #
-            # These 'NL bits' are the terms which are calculated in real space.
-            # They are transformed back to Fourier space, where any additional
-            # derivatives are taken by multiplying the NL bits by the
-            # appropriate powers of k. The NL bits here are
-            # 0 dxphi * T
-            # 1 dyphi * T
-            # We calculate {phi, T} by calculating
-            # {phi, T} = dy (dxphi * T) - dx (dyphi * T)
-
-            # FourierSystem expects a dft_bits array to exist
-            self.dft_bits = self.dft_derivatives_and_bits
-
-            # self.dft_bits = cp.zeros([2,
-            #                           self.padded_nz,
-            #                           self.padded_nx,
-            #                           self.half_padded_ny],
-            #                          dtype=self.complex)
-            #
-            # self.real_bits = cp.zeros([2,
-            #                            self.padded_nz,
-            #                            self.padded_nx,
-            #                            self.padded_ny],
-            #                           dtype=self.float)
-
-            self.cfl_rate = cp.zeros([1], dtype=self.float)
-
-            self.plan_c2r = cufft.PlanNd(
-                shape=tuple([self.padded_nz, self.padded_nx, self.padded_ny]),
-                istride=1,
-                ostride=1,
-                inembed=tuple([1, self.padded_nx, self.half_padded_ny]),
-                onembed=tuple([1, self.padded_nx, self.padded_ny]),
-                idist=self.padded_nz*self.padded_nx*self.half_padded_ny,
-                odist=self.padded_nz*self.padded_nx*self.padded_ny,
-                fft_type=self.fft_c2r_plan_type,
-                batch=3,
-                order='C',
-                last_axis=3,
-                last_size=self.padded_ny)
-
-            self.plan_r2c = cufft.PlanNd(
-                shape=tuple([self.padded_nz, self.padded_nx, self.padded_ny]),
-                istride=1,
-                ostride=1,
-                inembed=tuple([1, self.padded_nx, self.padded_ny]),
-                onembed=tuple([1, self.padded_nx, self.half_padded_ny]),
-                idist=self.padded_nz*self.padded_nx*self.padded_ny,
-                odist=self.padded_nz*self.padded_nx*self.half_padded_ny,
-                fft_type=self.fft_r2c_plan_type,
-                batch=2,
-                order='C',
-                last_axis=3,
-                last_size=self.half_padded_ny)
+        # The arrays for the above are handled by FourierSystem.
+        # There are no system-specific arrays that we need to allocate here 
 
     def _interpret_input(self):
         """Checks if the input file makes sense"""
@@ -278,22 +180,24 @@ class CollisionalETGFourier(FourierSystem):
         self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
                                      (self.cuda_block_size,),
                                      (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives_and_bits,
+                                      self.dft_derivatives,
                                       self.cfl_rate))
 
-        self.plan_c2r.fft(self.dft_derivatives_and_bits,
-                          self.real_derivatives_and_bits,
+        self.plan_derivatives_c2r.fft(self.dft_derivatives,
+                          self.real_derivatives,
                           cufft.CUFFT_INVERSE)
 
+        # NB: real_derivatives and real_bits are the same array
         self.find_nonlinear_bits_kernel(
             (self.full_padded_cuda_grid_size,),
             (self.cuda_block_size,),
-            (self.real_derivatives_and_bits,
+            (self.real_derivatives,
              self.cfl_rate),
             shared_mem=self.nonlinear_bits_shared_mem
         )
 
-        self.plan_r2c.fft(self.real_derivatives_and_bits, self.dft_derivatives_and_bits, cufft.CUFFT_FORWARD)
+        # NB: real_derivatives and real_bits are the same array
+        self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
 
         super().calculate_nonlinear_terms()
 
