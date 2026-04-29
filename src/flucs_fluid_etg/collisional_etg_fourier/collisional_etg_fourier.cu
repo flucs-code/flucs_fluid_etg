@@ -159,9 +159,6 @@ __device__ void get_nonlinear_terms(
     const size_t iky = indices.iky;
     const size_t ikz = indices.ikz;
 
-    // Initialise nonlinear terms
-    nonlinear_terms[0] = FLUCS_COMPLEX(0, 0);
-
     // Wavenumbers and indices 
     const FLUCS_FLOAT kx = kx_from_ikx(ikx);
     const FLUCS_FLOAT ky = ky_from_iky(iky);
