@@ -20,7 +20,7 @@ from flucs.solvers.fourier.fourier_system import FourierSystem
 class CollisionalETGFourier(FourierSystem):
     """Fourier solver for the 3D collisional ETG system."""
     number_of_fields = 2
-    number_of_fields_nonlinear = 1
+    number_of_fields_explicit = 1
     number_of_dft_derivatives = 3
     number_of_dft_bits = 2
 
@@ -41,17 +41,13 @@ class CollisionalETGFourier(FourierSystem):
 
     def ready(self):
         # Anything system-specific goes here
+        super().ready()
 
-        if not self.input["setup.linear"]:
-            cupy_set_device_pointer(self.cupy_module,
-                                    "multistep_nonlinear_terms",
-                                    self.multistep_nonlinear_terms)
-
+    def setup_cuda_grids(self):
+        super().setup_cuda_grids()
         self.nonlinear_bits_shared_mem = (
             self.cuda_block_size * self.float().nbytes
         )
-
-        super().ready()
 
     def _allocate_memory(self):
         # GPU arrays
