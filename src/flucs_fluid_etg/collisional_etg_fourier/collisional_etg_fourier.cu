@@ -282,7 +282,7 @@ void free_energy_collisional_loss_kzkx(
 __global__
 void W_hyperdissipation_perp_kzkx(
     const FLUCS_COMPLEX* fields,
-    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ){
 
@@ -290,7 +290,7 @@ void W_hyperdissipation_perp_kzkx(
             FLOAT_ONE,
             output,
             HyperdissipationPerp_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -299,7 +299,7 @@ void W_hyperdissipation_perp_kzkx(
 __global__
 void W_hyperdissipation_kx_kzkx(
     const FLUCS_COMPLEX* fields,
-    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ){
 
@@ -307,7 +307,7 @@ void W_hyperdissipation_kx_kzkx(
             FLOAT_ONE,
             output,
             HyperdissipationKx_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -316,7 +316,7 @@ void W_hyperdissipation_kx_kzkx(
 __global__
 void W_hyperdissipation_ky_kzkx(
     const FLUCS_COMPLEX* fields,
-    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ){
 
@@ -324,7 +324,7 @@ void W_hyperdissipation_ky_kzkx(
             FLOAT_ONE,
             output,
             HyperdissipationKy_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -333,7 +333,7 @@ void W_hyperdissipation_ky_kzkx(
 __global__
 void W_hyperdissipation_kz_kzkx(
     const FLUCS_COMPLEX* fields,
-    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT adaptive_rate,
     FLUCS_FLOAT* output
 ){
 
@@ -341,7 +341,7 @@ void W_hyperdissipation_kz_kzkx(
             FLOAT_ONE,
             output,
             HyperdissipationKz_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, dt
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
