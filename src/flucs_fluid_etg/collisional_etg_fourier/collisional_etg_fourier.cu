@@ -7,9 +7,6 @@
 
 extern "C" {
 
-// Array for AB3 nonlinear terms
-__constant__ FLUCS_COMPLEX* multistep_nonlinear_terms = NULL;
-
 __device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
     // First, we need to figure out the kx and ky of the mode.
     // const size_t ikx = index / HALF_NY;
@@ -148,10 +145,10 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + PADDEDSIZE] = dyphi * T;
 }
 
-__device__ void get_nonlinear_terms(
+__device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_COMPLEX* dft_bits,
-    FLUCS_COMPLEX* nonlinear_terms
+    FLUCS_COMPLEX* explicit_terms
 ){
     // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
@@ -168,7 +165,7 @@ __device__ void get_nonlinear_terms(
     const size_t padded_index = index_from_3d<PADDED_NZ, PADDED_NX, HALF_PADDED_NY>(padded_ikz, padded_ikx, iky);
 
     // Calculate nonlinear terms
-    nonlinear_terms[0] = DFT_PADDEDSIZE_FACTOR * (
+    explicit_terms[0] += DFT_PADDEDSIZE_FACTOR * (
                             + FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
                                              ky * dft_bits[padded_index].real())
                             + FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
@@ -177,7 +174,7 @@ __device__ void get_nonlinear_terms(
 }
 
 __device__ __forceinline__
-int nonlinear_term_field_index(const int term_index) {
+int explicit_term_field_index(const int term_index) {
     return 1; // The nonlinear term appears in the T equation
 }
 
@@ -285,13 +282,15 @@ void free_energy_collisional_loss_kzkx(
 __global__
 void W_hyperdissipation_perp_kzkx(
     const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
+    const FLUCS_FLOAT adaptive_rate,
+    FLUCS_FLOAT* output
+){
 
     add_and_sum_last_axis<HALF_NY, true>(
             FLOAT_ONE,
             output,
             HyperdissipationPerp_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -300,13 +299,15 @@ void W_hyperdissipation_perp_kzkx(
 __global__
 void W_hyperdissipation_kx_kzkx(
     const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
+    const FLUCS_FLOAT adaptive_rate,
+    FLUCS_FLOAT* output
+){
 
     add_and_sum_last_axis<HALF_NY, true>(
             FLOAT_ONE,
             output,
             HyperdissipationKx_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -315,13 +316,15 @@ void W_hyperdissipation_kx_kzkx(
 __global__
 void W_hyperdissipation_ky_kzkx(
     const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
+    const FLUCS_FLOAT adaptive_rate,
+    FLUCS_FLOAT* output
+){
 
     add_and_sum_last_axis<HALF_NY, true>(
             FLOAT_ONE,
             output,
             HyperdissipationKy_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
@@ -330,13 +333,15 @@ void W_hyperdissipation_ky_kzkx(
 __global__
 void W_hyperdissipation_kz_kzkx(
     const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
+    const FLUCS_FLOAT adaptive_rate,
+    FLUCS_FLOAT* output
+){
 
     add_and_sum_last_axis<HALF_NY, true>(
             FLOAT_ONE,
             output,
             HyperdissipationKz_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
+                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}, adaptive_rate
             }
         );
 
