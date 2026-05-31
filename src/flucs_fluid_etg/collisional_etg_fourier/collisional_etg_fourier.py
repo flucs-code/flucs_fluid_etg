@@ -13,7 +13,7 @@ from .collisional_etg_fourier_diagnostics import HeatfluxDiag
 from .collisional_etg_fourier_diagnostics import FreeEnergyDiag
 
 from flucs.diagnostic import FlucsDiagnostic
-from flucs.utilities.cupy import cupy_set_device_pointer
+from flucs.utilities.cupy import KernelWrapper
 from flucs.solvers.fourier.fourier_system import FourierSystem
 
 
@@ -29,10 +29,8 @@ class CollisionalETGFourier(FourierSystem):
     T: list
 
     # CUDA grids and kernels 
-    nonlinear_bits_shared_mem: int
-
-    find_derivatives_kernel: cp.RawKernel
-    find_nonlinear_bits_kernel: cp.RawKernel
+    find_derivatives_kernel: KernelWrapper
+    find_nonlinear_bits_kernel: KernelWrapper
 
     # Supported diagnostics
     diags: ClassVar[set[type[FlucsDiagnostic]]] = {
@@ -43,10 +41,27 @@ class CollisionalETGFourier(FourierSystem):
         # Anything system-specific goes here
         super().ready()
 
-    def setup_cuda_grids(self):
-        super().setup_cuda_grids()
-        self.nonlinear_bits_shared_mem = (
+    def register_kernels(self):
+        super().register_kernels()
+
+        nonlinear_bits_shared_mem = (
             self.cuda_block_size * self.float().nbytes
+        )
+
+        # System-specific kernels
+        self.find_derivatives_kernel = KernelWrapper(
+            system=self,
+            cuda_kernel_name="find_derivatives",
+            grid=(self.half_padded_cuda_grid_size,),
+            block=(self.cuda_block_size,),
+        )
+
+        self.find_nonlinear_bits_kernel = KernelWrapper(
+            system=self,
+            cuda_kernel_name="find_nonlinear_bits",
+            grid=(self.full_padded_cuda_grid_size,),
+            block=(self.cuda_block_size,),
+            shared_mem=nonlinear_bits_shared_mem,
         )
 
     def _allocate_memory(self):
@@ -130,7 +145,7 @@ class CollisionalETGFourier(FourierSystem):
         self.input["parameters.coeffc"] = coeffc
         self.input._initialised = True
 
-    def compile_cupy_module(self) -> None:
+    def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
 
         self.module_options.define_float("KAPPAT",
@@ -152,15 +167,8 @@ class CollisionalETGFourier(FourierSystem):
         self.module_options.define_float("TAUBAR",
                                             tratio / charge)
 
-        # Call this to compile the module
-        super().compile_cupy_module()
-
-        # System-specific kernels
-        self.find_derivatives_kernel =\
-            self.cupy_module.get_function("find_derivatives")
-
-        self.find_nonlinear_bits_kernel =\
-            self.cupy_module.get_function("find_nonlinear_bits")
+        # Call this setup the CUDA definitions
+        super().setup_cuda_definitions()
 
     def begin_time_step(self) -> None:
         # Do anything model-specific here, then call the parent's method
@@ -173,27 +181,30 @@ class CollisionalETGFourier(FourierSystem):
         nonlinear CFL coefficient.
 
         """
-        self.find_derivatives_kernel((self.half_padded_cuda_grid_size,),
-                                     (self.cuda_block_size,),
-                                     (self.fields[self.current_step % 2 - 1],
-                                      self.dft_derivatives,
-                                      self.cfl_rate))
+        self.find_derivatives_kernel(
+            self.fields[self.current_step % 2 - 1],
+            self.dft_derivatives,
+            self.cfl_rate
+        )
 
-        self.plan_derivatives_c2r.fft(self.dft_derivatives,
-                          self.real_derivatives,
-                          cufft.CUFFT_INVERSE)
-
-        # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits_kernel(
-            (self.full_padded_cuda_grid_size,),
-            (self.cuda_block_size,),
-            (self.real_derivatives,
-             self.cfl_rate),
-            shared_mem=self.nonlinear_bits_shared_mem
+        self.plan_derivatives_c2r.fft(
+            self.dft_derivatives,
+            self.real_derivatives,
+            cufft.CUFFT_INVERSE
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(self.real_bits, self.dft_bits, cufft.CUFFT_FORWARD)
+        self.find_nonlinear_bits_kernel(
+            self.real_derivatives,
+            self.cfl_rate
+        )
+
+        # NB: real_derivatives and real_bits are the same array
+        self.plan_bits_r2c.fft(
+            self.real_bits, 
+            self.dft_bits, 
+            cufft.CUFFT_FORWARD
+        )
 
         super().calculate_nonlinear_terms()
 
