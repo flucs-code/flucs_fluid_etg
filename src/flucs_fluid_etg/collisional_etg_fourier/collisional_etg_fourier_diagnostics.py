@@ -36,7 +36,7 @@ class HeatfluxDiag(FlucsDiagnostic):
         fields = self.system.fields[self.system.current_step % 2]
 
         self.vars["heatflux"].data_cache.append(
-            -1.5 * self.get_heatflux(fields).get().item()
+            self.get_heatflux(fields).get().item()
         )
 
 
@@ -82,7 +82,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
             is_complex=False
         ))
 
-        for component in ["perp", "kx", "ky", "kz"]:
+        for component in self.system.hyperdissipation_components:
             self.add_var(FlucsDiagnosticVariable(
                 name=f"dWdt_hyperdissipation_{component}",
                 shape=(),
@@ -143,12 +143,12 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
         # dWdt_inj
         heatflux = self.get_heatflux(fields).get().item()
-        dWdt_inj = -self.system.input["parameters.kappaT"] * 1.5 * heatflux
+        dWdt_inj = self.system.input["parameters.kappaT"] * heatflux
         self.save_data("dWdt_inj", dWdt_inj)
 
         # dWdt_hyperdissipation
         dWdt_hyperdissipation_total = 0.0
-        for index, component in enumerate(["perp", "kx", "ky", "kz"]):
+        for index, component in enumerate(self.system.hyperdissipation_components):
             result = self.get_dWdt_hyperdissipation(
                 fields, adaptive_rate, index
             )
@@ -165,4 +165,3 @@ class FreeEnergyDiag(FlucsDiagnostic):
             "dWdt_error",
             dWdt - dWdt_inj - dWdt_coll - dWdt_hyperdissipation_total,
         )
-        

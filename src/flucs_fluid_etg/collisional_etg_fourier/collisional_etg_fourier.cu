@@ -183,7 +183,8 @@ struct Heatflux_Functor {
     __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
         const FLUCS_COMPLEX* phi = fields;
         const FLUCS_COMPLEX* T = fields + HALFUNPADDEDSIZE;
-        return (Dy_Functor{phi}(index) * CC_Functor{T}(index)).real();
+        return ((FLUCS_FLOAT)(-1.5))
+            * (Dy_Functor{phi}(index) * CC_Functor{T}(index)).real();
     }
 };
 
@@ -236,26 +237,12 @@ struct FreeEnergyHyperdissipation_Functor {
     const int hyperdissipation_type;
 
     __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
-        switch (hyperdissipation_type) {
-            case 0:
-                return (FLUCS_FLOAT)2.0 * HyperdissipationPerp_Functor<FreeEnergy_Functor>{
-                    FreeEnergy_Functor{fields}, adaptive_rate
-                }(index);
-            case 1:
-                return (FLUCS_FLOAT)2.0 * HyperdissipationKx_Functor<FreeEnergy_Functor>{
-                    FreeEnergy_Functor{fields}, adaptive_rate
-                }(index);
-            case 2:
-                return (FLUCS_FLOAT)2.0 * HyperdissipationKy_Functor<FreeEnergy_Functor>{
-                    FreeEnergy_Functor{fields}, adaptive_rate
-                }(index);
-            case 3:
-                return (FLUCS_FLOAT)2.0 * HyperdissipationKz_Functor<FreeEnergy_Functor>{
-                    FreeEnergy_Functor{fields}, adaptive_rate
-                }(index);
-            default:
-                __trap();
-        }
+        return (FLUCS_FLOAT)2.0
+            * HyperdissipationSelector_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields},
+                adaptive_rate,
+                hyperdissipation_type
+            }(index);
     }
 };
 
