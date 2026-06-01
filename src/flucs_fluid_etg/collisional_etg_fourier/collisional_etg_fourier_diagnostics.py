@@ -47,7 +47,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
     get_W: Callable[..., cp.ndarray]
     get_heatflux: Callable[..., cp.ndarray]
     get_dWdt_coll: Callable[..., cp.ndarray]
-    get_dWdt_hyperdissipation: Callable[..., cp.ndarray]
+    get_dWdt_hyperdissipation_component: Callable[..., cp.ndarray]
 
     def init_vars(self):
         reductions = FourierReductions(self.system)
@@ -111,9 +111,9 @@ class FreeEnergyDiag(FlucsDiagnostic):
             input_args="FLUCS_COMPLEX*",
             complex_output=False
         )
-        self.get_dWdt_hyperdissipation = reductions.get_reduction(
+        self.get_dWdt_hyperdissipation_component = reductions.get_reduction(
             reduction_output="scalar",
-            functor="FreeEnergyHyperdissipation_Functor",
+            functor="FreeEnergyHyperdissipationComponent_Functor",
             input_args="FLUCS_COMPLEX*,FLUCS_FLOAT,int",
             complex_output=False,
         )
@@ -151,7 +151,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
         # dWdt_hyperdissipation
         dWdt_hyperdissipation_total = 0.0
         for index, component in enumerate(self.system.hyperdissipation_components):
-            result = self.get_dWdt_hyperdissipation(
+            result = self.get_dWdt_hyperdissipation_component(
                 fields, adaptive_rate, index
             )
 

@@ -232,6 +232,19 @@ struct FreeEnergyColl_Functor {
 };
 
 struct FreeEnergyHyperdissipation_Functor {
+    const FLUCS_COMPLEX* fields;
+    const FLUCS_FLOAT adaptive_rate;
+
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        return (FLUCS_FLOAT)2.0
+            * Hyperdissipation_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields},
+                adaptive_rate
+            }(index);
+    }
+};
+
+struct FreeEnergyHyperdissipationComponent_Functor {
     const FLUCS_COMPLEX* __restrict__ fields;
     const FLUCS_FLOAT adaptive_rate;
     const int hyperdissipation_type;
