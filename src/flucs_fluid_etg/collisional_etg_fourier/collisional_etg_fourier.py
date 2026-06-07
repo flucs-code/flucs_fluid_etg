@@ -174,15 +174,14 @@ class CollisionalETGFourier(FourierSystem):
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def calculate_nonlinear_terms(self) -> None:
+    def compute_nonlinear_terms(self, fields: cp.ndarray) -> None:
         """
-        Calculates the nonlinear terms. This is the most computationaly
-        intensive part of taking a time step. Here, we also determine the
-        nonlinear CFL coefficient.
+        Computes the nonlinear terms for the supplied fields. Here, we also
+        determine the nonlinear CFL coefficient.
 
         """
         self.find_derivatives_kernel(
-            self.fields[self.current_step % 2 - 1],
+            fields,
             self.dft_derivatives,
             self.cfl_rate
         )
@@ -205,8 +204,6 @@ class CollisionalETGFourier(FourierSystem):
             self.dft_bits, 
             cufft.CUFFT_FORWARD
         )
-
-        super().calculate_nonlinear_terms()
 
     def finish_time_step(self) -> None:
         super().finish_time_step()
