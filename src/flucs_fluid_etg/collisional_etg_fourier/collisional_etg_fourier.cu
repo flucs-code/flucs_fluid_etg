@@ -7,9 +7,6 @@
 
 extern "C" {
 
-// Array for AB3 nonlinear terms
-__constant__ FLUCS_COMPLEX* multistep_nonlinear_terms = NULL;
-
 __device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
     // First, we need to figure out the kx and ky of the mode.
     // const size_t ikx = index / HALF_NY;
@@ -148,10 +145,10 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     real_derivatives_and_bits[real_index + PADDEDSIZE] = dyphi * T;
 }
 
-__device__ void get_nonlinear_terms(
+__device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_COMPLEX* dft_bits,
-    FLUCS_COMPLEX* nonlinear_terms
+    FLUCS_COMPLEX* explicit_terms
 ){
     // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
@@ -168,7 +165,7 @@ __device__ void get_nonlinear_terms(
     const size_t padded_index = index_from_3d<PADDED_NZ, PADDED_NX, HALF_PADDED_NY>(padded_ikz, padded_ikx, iky);
 
     // Calculate nonlinear terms
-    nonlinear_terms[0] = DFT_PADDEDSIZE_FACTOR * (
+    explicit_terms[0] += DFT_PADDEDSIZE_FACTOR * (
                             + FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
                                              ky * dft_bits[padded_index].real())
                             + FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
@@ -177,40 +174,34 @@ __device__ void get_nonlinear_terms(
 }
 
 __device__ __forceinline__
-int nonlinear_term_field_index(const int term_index) {
+int explicit_term_field_index(const int term_index) {
     return 1; // The nonlinear term appears in the T equation
 }
 
-__global__
-void heatflux_kzkx(
-    const FLUCS_COMPLEX* phi,
-    const FLUCS_COMPLEX* T,
-    FLUCS_COMPLEX* output){
-
-    multiply_and_sum_last_axis<HALF_NY, true>(
-            COMPLEX_ONE,
-            output,
-            Dy_Functor{phi},
-            CC_Functor{T}
-        );
-
-}
+struct Heatflux_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        const FLUCS_COMPLEX* phi = fields;
+        const FLUCS_COMPLEX* T = fields + HALFUNPADDEDSIZE;
+        return ((FLUCS_FLOAT)(-1.5))
+            * (Dy_Functor{phi}(index) * CC_Functor{T}(index)).real();
+    }
+};
 
 struct FreeEnergy_Functor {
     const FLUCS_COMPLEX* __restrict__ fields;
-    const FLUCS_FLOAT multiplier;
     __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
 
         const FLUCS_COMPLEX phi = fields[index];
         const FLUCS_COMPLEX T = fields[index + HALFUNPADDEDSIZE];
 
-        const FLUCS_FLOAT phi2_bit = (
+        const FLUCS_FLOAT phi2_contribution = (
             phi.real() * phi.real() + phi.imag() * phi.imag()
         ) * (1 + 1 / TAUBAR) / (2 * TAUBAR);
 
-        const FLUCS_FLOAT T2_bit = (3.0/4) * (T.real() * T.real() + T.imag() * T.imag());
+        const FLUCS_FLOAT T2_contribution = (3.0/4) * (T.real() * T.real() + T.imag() * T.imag());
 
-        return multiplier * (phi2_bit + T2_bit);
+        return phi2_contribution + T2_contribution;
     }
 };
 
@@ -240,106 +231,32 @@ struct FreeEnergyColl_Functor {
     }
 };
 
-__global__
-void free_energy_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
+struct FreeEnergyHyperdissipation_Functor {
+    const FLUCS_COMPLEX* fields;
+    const FLUCS_FLOAT adaptive_rate;
 
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            FreeEnergy_Functor{fields, FLOAT_ONE}
-        );
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        return (FLUCS_FLOAT)2.0
+            * Hyperdissipation_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields},
+                adaptive_rate
+            }(index);
+    }
+};
 
-}
+struct FreeEnergyHyperdissipationComponent_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    const FLUCS_FLOAT adaptive_rate;
+    const int hyperdissipation_type;
 
-
-__global__
-void dW_kzkx(
-    const FLUCS_COMPLEX* fields_now,
-    const FLUCS_COMPLEX* fields_prev,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            (FLUCS_FLOAT)1.0,
-            output,
-            FreeEnergy_Functor{fields_now, FLOAT_ONE},
-            FreeEnergy_Functor{fields_prev, -FLOAT_ONE}
-        );
-
-}
-
-__global__
-void free_energy_collisional_loss_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            FreeEnergyColl_Functor{fields}
-        );
-
-}
-
-__global__
-void W_hyperdissipation_perp_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            HyperdissipationPerp_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
-            }
-        );
-
-}
-
-__global__
-void W_hyperdissipation_kx_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            HyperdissipationKx_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
-            }
-        );
-
-}
-
-__global__
-void W_hyperdissipation_ky_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            HyperdissipationKy_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
-            }
-        );
-
-}
-
-__global__
-void W_hyperdissipation_kz_kzkx(
-    const FLUCS_COMPLEX* fields,
-    FLUCS_FLOAT* output){
-
-    add_and_sum_last_axis<HALF_NY, true>(
-            FLOAT_ONE,
-            output,
-            HyperdissipationKz_Functor<FreeEnergy_Functor>{
-                FreeEnergy_Functor{fields, (FLUCS_FLOAT)2.0}
-            }
-        );
-
-}
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        return (FLUCS_FLOAT)2.0
+            * HyperdissipationSelector_Functor<FreeEnergy_Functor>{
+                FreeEnergy_Functor{fields},
+                adaptive_rate,
+                hyperdissipation_type
+            }(index);
+    }
+};
 
 } // extern "C"
