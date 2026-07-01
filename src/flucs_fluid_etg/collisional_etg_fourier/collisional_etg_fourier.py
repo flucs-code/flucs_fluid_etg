@@ -20,7 +20,6 @@ from flucs.solvers.fourier.fourier_system import FourierSystem
 class CollisionalETGFourier(FourierSystem):
     """Fourier solver for the 3D collisional ETG system."""
     number_of_fields = 2
-    number_of_fields_explicit = 1
     number_of_dft_derivatives = 3
     number_of_dft_bits = 2
 

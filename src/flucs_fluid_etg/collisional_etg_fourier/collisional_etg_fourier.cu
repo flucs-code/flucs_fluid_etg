@@ -165,17 +165,12 @@ __device__ void add_nonlinear_terms(
     const size_t padded_index = index_from_3d<PADDED_NZ, PADDED_NX, HALF_PADDED_NY>(padded_ikz, padded_ikx, iky);
 
     // Calculate nonlinear terms
-    explicit_terms[0] += DFT_PADDEDSIZE_FACTOR * (
+    explicit_terms[1] += DFT_PADDEDSIZE_FACTOR * (
                             + FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
                                              ky * dft_bits[padded_index].real())
                             + FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
                                             -kx * dft_bits[padded_index + HALFPADDEDSIZE].real()));
 
-}
-
-__device__ __forceinline__
-int explicit_term_field_index(const int term_index) {
-    return 1; // The nonlinear term appears in the T equation
 }
 
 struct Heatflux_Functor {
