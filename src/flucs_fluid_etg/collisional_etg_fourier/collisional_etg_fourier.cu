@@ -1,5 +1,5 @@
 /*
- * Contains all the CUDA kernels for the 2D ITG model of Ivanov et al. (2020).
+ * Contains all the CUDA kernels for the 3D ETG model of Adkins et al. (2023).
  */
 
 // A lot of basic functionality is already implemented here.
@@ -7,18 +7,19 @@
 
 extern "C" {
 
-__device__ void get_linear_matrix(const size_t index, const FLUCS_FLOAT dt, FLUCS_COMPLEX matrix[2][2]){
-    // First, we need to figure out the kx and ky of the mode.
-    // const size_t ikx = index / HALF_NY;
-    // const size_t iky = index % HALF_NY;
-
+__device__ void get_linear_matrix(
+    const size_t index, 
+    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT current_time,
+    const long long current_step, 
+    FLUCS_COMPLEX matrix[2][2]
+){
+    // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
     const size_t ikx = indices.ikx;
     const size_t iky = indices.iky;
     const size_t ikz = indices.ikz;
 
-    // const FLUCS_FLOAT kx = (ikx < HALF_NX) ? TWOPI_OVER_LX * ikx : TWOPI_OVER_LX * (ikx - NX);
-    // const FLUCS_FLOAT ky = TWOPI_OVER_LY * iky;
     const FLUCS_FLOAT kx = kx_from_ikx(ikx);
     const FLUCS_FLOAT ky = ky_from_iky(iky);
     const FLUCS_FLOAT kz = kz_from_ikz(ikz);
@@ -147,6 +148,9 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
 
 __device__ void add_nonlinear_terms(
     const size_t index,
+    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT current_time,
+    const long long current_step,
     const FLUCS_COMPLEX* dft_bits,
     FLUCS_COMPLEX* explicit_terms
 ){
