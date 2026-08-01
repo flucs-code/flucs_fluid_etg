@@ -182,8 +182,9 @@ class CollisionalETGFourier(FourierSystem):
         self.find_derivatives_kernel(
             fields,
             self.dft_derivatives,
-            self.cfl_rate
         )
+
+        self.cfl_rate[0] = 0
 
         self.plan_derivatives_c2r.fft(
             self.dft_derivatives,

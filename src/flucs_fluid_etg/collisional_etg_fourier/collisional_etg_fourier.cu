@@ -43,9 +43,10 @@ __device__ void get_linear_matrix(
 }
 
 
-__global__ void find_derivatives(const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
-                                 FLUCS_COMPLEX dft_derivatives_global[NUMBER_OF_DFT_DERIVATIVES][HALFPADDEDSIZE],
-                                 FLUCS_FLOAT* cfl_rate){
+__global__ void find_derivatives(
+    const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
+    FLUCS_COMPLEX dft_derivatives_global[NUMBER_OF_DFT_DERIVATIVES][HALFPADDEDSIZE]
+){
     const size_t padded_index = blockDim.x * blockIdx.x + threadIdx.x;
 
     // Check if we are within bounds
@@ -56,9 +57,6 @@ __global__ void find_derivatives(const FLUCS_COMPLEX fields_global[NUMBER_OF_FIE
     const size_t padded_ikx = padded_indices.padded_ikx;
     const size_t padded_iky = padded_indices.padded_iky;
     const size_t padded_ikz = padded_indices.padded_ikz;
-
-    if (padded_index == 0)
-        *cfl_rate = 0;
 
     // Check if mode should be zeroed
     if (   (padded_ikx >= HALF_NX && padded_ikx < (HALF_NX + PADDED_NX) - NX)
@@ -77,29 +75,22 @@ __global__ void find_derivatives(const FLUCS_COMPLEX fields_global[NUMBER_OF_FIE
 
     const size_t index = index_from_3d<NZ, NX, HALF_NY>(ikz, ikx, padded_iky);
 
-    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
+    const FLUCS_COMPLEX dx = dx_from_ikx(ikx);
 
     // padded_iky and iky are the same for nonzero modes
-    const FLUCS_FLOAT ky = ky_from_iky(padded_iky);
+    const FLUCS_COMPLEX dy = dy_from_iky(padded_iky);
 
     const FLUCS_COMPLEX phi = fields_global[0][index];
     const FLUCS_COMPLEX T = fields_global[1][index];
 
-    dft_derivatives_global[0][padded_index]\
-        = FLUCS_COMPLEX(-kx * phi.imag(), kx * phi.real());
-
-    dft_derivatives_global[1][padded_index]\
-        = FLUCS_COMPLEX(-ky * phi.imag(), ky * phi.real());
-
-    dft_derivatives_global[2][padded_index]\
-        = T;
+    dft_derivatives_global[0][padded_index] = dx * phi;
+    dft_derivatives_global[1][padded_index] = dy * phi;
+    dft_derivatives_global[2][padded_index] = T;
 }
 
 
 __global__ void find_nonlinear_bits(FLUCS_FLOAT real_derivatives_and_bits_global[NUMBER_OF_DFT_COMBINED][PADDEDSIZE],
-                                    FLUCS_FLOAT* cfl_rate){
-    // Shared memory for CFL calculations
-    extern __shared__ FLUCS_FLOAT cfl_shared[];
+                                    FLUCS_FLOAT* cfl_rate_global){
 
     const size_t real_index = blockDim.x * blockIdx.x + threadIdx.x;
     const bool in_bounds = real_index < PADDEDSIZE;
@@ -115,23 +106,7 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT real_derivatives_and_bits_global
     const FLUCS_FLOAT cfl = flucs_fabs(dxphi) * (NY / LY)
         + flucs_fabs(dyphi) * (NX / LX);
 
-    // Find max CFL using shared memory
-    // TODO: Could we speed this up by reducing over warps?
-    cfl_shared[threadIdx.x] = cfl;
-    __syncthreads();
-
-    // Parallel reduction in shared memory
-    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride) {
-            cfl_shared[threadIdx.x] = flucs_fmax(cfl_shared[threadIdx.x], cfl_shared[threadIdx.x + stride]);
-        }
-        __syncthreads();
-    }
-
-    // First thread in block writes to global max via atomic
-    if (threadIdx.x == 0) {
-        atomicMaxFloat(cfl_rate, cfl_shared[0]); // custom atomic for float
-    }
+    update_cfl(cfl, cfl_rate_global);
 
     // Out-of-bounds threads should not contribute to nonlinear bits
     if (!in_bounds)
