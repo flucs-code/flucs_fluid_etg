@@ -12,7 +12,7 @@ __device__ void get_linear_matrix(
     const FLUCS_FLOAT dt,
     const FLUCS_FLOAT current_time,
     const long long current_step, 
-    FLUCS_COMPLEX matrix[2][2]
+    FLUCS_COMPLEX matrix[NUMBER_OF_FIELDS][NUMBER_OF_FIELDS]
 ){
     // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
@@ -43,8 +43,8 @@ __device__ void get_linear_matrix(
 }
 
 
-__global__ void find_derivatives(const FLUCS_COMPLEX* fields,
-                                 FLUCS_COMPLEX* dft_derivatives,
+__global__ void find_derivatives(const FLUCS_COMPLEX fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
+                                 FLUCS_COMPLEX dft_derivatives_global[NUMBER_OF_DFT_DERIVATIVES][HALFPADDEDSIZE],
                                  FLUCS_FLOAT* cfl_rate){
     const size_t padded_index = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -58,16 +58,16 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
     const size_t padded_ikz = padded_indices.padded_ikz;
 
     if (padded_index == 0)
-        cfl_rate[0] = 0;
+        *cfl_rate = 0;
 
     // Check if mode should be zeroed
     if (   (padded_ikx >= HALF_NX && padded_ikx < (HALF_NX + PADDED_NX) - NX)
         || (padded_ikz >= HALF_NZ && padded_ikz < (HALF_NZ + PADDED_NZ) - NZ)
         || padded_iky >= HALF_NY){
 
-        dft_derivatives[padded_index] = 0;
-        dft_derivatives[padded_index + HALFPADDEDSIZE] = 0;
-        dft_derivatives[padded_index + 2*HALFPADDEDSIZE] = 0;
+        dft_derivatives_global[0][padded_index] = 0;
+        dft_derivatives_global[1][padded_index] = 0;
+        dft_derivatives_global[2][padded_index] = 0;
         return;
     }
     
@@ -82,21 +82,21 @@ __global__ void find_derivatives(const FLUCS_COMPLEX* fields,
     // padded_iky and iky are the same for nonzero modes
     const FLUCS_FLOAT ky = ky_from_iky(padded_iky);
 
-    const FLUCS_COMPLEX phi = fields[index];
-    const FLUCS_COMPLEX T = fields[index + HALFUNPADDEDSIZE];
+    const FLUCS_COMPLEX phi = fields_global[0][index];
+    const FLUCS_COMPLEX T = fields_global[1][index];
 
-    dft_derivatives[padded_index]\
+    dft_derivatives_global[0][padded_index]\
         = FLUCS_COMPLEX(-kx * phi.imag(), kx * phi.real());
 
-    dft_derivatives[padded_index + HALFPADDEDSIZE]\
+    dft_derivatives_global[1][padded_index]\
         = FLUCS_COMPLEX(-ky * phi.imag(), ky * phi.real());
 
-    dft_derivatives[padded_index + 2*HALFPADDEDSIZE]\
+    dft_derivatives_global[2][padded_index]\
         = T;
 }
 
 
-__global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
+__global__ void find_nonlinear_bits(FLUCS_FLOAT real_derivatives_and_bits_global[NUMBER_OF_DFT_COMBINED][PADDEDSIZE],
                                     FLUCS_FLOAT* cfl_rate){
     // Shared memory for CFL calculations
     extern __shared__ FLUCS_FLOAT cfl_shared[];
@@ -106,10 +106,10 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
 
     // Inactive threads do not contribute to the cfl reduction 
     const FLUCS_FLOAT dxphi = in_bounds
-        ? real_derivatives_and_bits[real_index]
+        ? real_derivatives_and_bits_global[0][real_index]
         : (FLUCS_FLOAT)0;
     const FLUCS_FLOAT dyphi = in_bounds
-        ? real_derivatives_and_bits[real_index + PADDEDSIZE]
+        ? real_derivatives_and_bits_global[1][real_index]
         : (FLUCS_FLOAT)0;
 
     const FLUCS_FLOAT cfl = flucs_fabs(dxphi) * (NY / LY)
@@ -137,13 +137,13 @@ __global__ void find_nonlinear_bits(FLUCS_FLOAT* real_derivatives_and_bits,
     if (!in_bounds)
         return;
 
-    const FLUCS_FLOAT T = real_derivatives_and_bits[real_index + 2*PADDEDSIZE];
+    const FLUCS_FLOAT T = real_derivatives_and_bits_global[2][real_index];
 
     // dxphi T
-    real_derivatives_and_bits[real_index] = dxphi * T;
+    real_derivatives_and_bits_global[0][real_index] = dxphi * T;
 
     // dyphi T
-    real_derivatives_and_bits[real_index + PADDEDSIZE] = dyphi * T;
+    real_derivatives_and_bits_global[1][real_index] = dyphi * T;
 }
 
 __device__ void add_nonlinear_terms(
@@ -151,8 +151,8 @@ __device__ void add_nonlinear_terms(
     const FLUCS_FLOAT dt,
     const FLUCS_FLOAT current_time,
     const long long current_step,
-    const FLUCS_COMPLEX* dft_bits,
-    FLUCS_COMPLEX* explicit_terms
+    const FLUCS_COMPLEX dft_bits_global[NUMBER_OF_DFT_BITS][HALFPADDEDSIZE],
+    FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
 ){
     // Indices
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
@@ -170,10 +170,10 @@ __device__ void add_nonlinear_terms(
 
     // Calculate nonlinear terms
     explicit_terms[1] += DFT_PADDEDSIZE_FACTOR * (
-                            + FLUCS_COMPLEX(-ky * dft_bits[padded_index].imag(),
-                                             ky * dft_bits[padded_index].real())
-                            + FLUCS_COMPLEX( kx * dft_bits[padded_index + HALFPADDEDSIZE].imag(),
-                                            -kx * dft_bits[padded_index + HALFPADDEDSIZE].real()));
+                            + FLUCS_COMPLEX(-ky * dft_bits_global[0][padded_index].imag(),
+                                             ky * dft_bits_global[0][padded_index].real())
+                            + FLUCS_COMPLEX( kx * dft_bits_global[1][padded_index].imag(),
+                                            -kx * dft_bits_global[1][padded_index].real()));
 
 }
 
