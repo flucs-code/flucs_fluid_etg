@@ -51,14 +51,14 @@ class CollisionalETGFourier(FourierSystem):
         self.find_derivatives_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_derivatives",
-            grid=(self.half_padded_cuda_grid_size,),
+            grid=(self.half_cuda_grid_size,),
             block=(self.cuda_block_size,),
         )
 
         self.find_nonlinear_bits_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_nonlinear_bits",
-            grid=(self.full_padded_cuda_grid_size,),
+            grid=(self.full_cuda_grid_size,),
             block=(self.cuda_block_size,),
             shared_mem=nonlinear_bits_shared_mem,
         )
@@ -214,7 +214,7 @@ class CollisionalETGFourier(FourierSystem):
             (
                 self.number_of_fields,
                 self.number_of_fields,
-                *self.half_unpadded_tuple
+                *self.half_tuple
             ),
             dtype=self.complex,
         )
