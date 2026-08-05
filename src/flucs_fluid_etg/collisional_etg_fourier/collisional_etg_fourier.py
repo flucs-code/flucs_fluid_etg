@@ -220,7 +220,7 @@ class CollisionalETGFourier(FourierSystem):
         )
 
         # Get wavenumbers
-        kx, ky, kz = self.get_broadcast_wavenumbers()
+        kz, kx, ky = self.get_broadcast_wavenumbers()
 
         # Get parameters
         kappaT = self.input["parameters.kappaT"]
