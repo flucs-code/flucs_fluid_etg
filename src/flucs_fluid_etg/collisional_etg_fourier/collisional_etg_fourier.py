@@ -48,20 +48,29 @@ class CollisionalETGFourier(FourierSystem):
         )
 
         # System-specific kernels
-        self.find_derivatives_kernel = KernelWrapper(
-            system=self,
-            cuda_kernel_name="find_derivatives",
-            grid=(self.half_cuda_grid_size,),
-            block=(self.cuda_block_size,),
+        # self.find_derivatives_kernel = KernelWrapper(
+        #     system=self,
+        #     cuda_kernel_name="find_derivatives",
+        #     grid=(self.half_cuda_grid_size,),
+        #     block=(self.cuda_block_size,),
+        # )
+
+        self.find_derivatives_operation = self.create_dealiased_fourier_to_real(
+            cuda_device_function="find_derivatives",
         )
 
-        self.find_nonlinear_bits_kernel = KernelWrapper(
-            system=self,
-            cuda_kernel_name="find_nonlinear_bits",
-            grid=(self.full_cuda_grid_size,),
-            block=(self.cuda_block_size,),
+        self.find_nonlinear_bits_operation = self.create_dealiased_real_to_fourier(
+            cuda_device_function="find_nonlinear_bits",
             shared_mem=nonlinear_bits_shared_mem,
         )
+
+        # self.find_nonlinear_bits_kernel = KernelWrapper(
+        #     system=self,
+        #     cuda_kernel_name="find_nonlinear_bits",
+        #     grid=(self.full_cuda_grid_size,),
+        #     block=(self.cuda_block_size,),
+        #     shared_mem=nonlinear_bits_shared_mem,
+        # )
 
     def _allocate_memory(self):
         # GPU arrays
@@ -173,37 +182,52 @@ class CollisionalETGFourier(FourierSystem):
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def compute_nonlinear_terms(self, fields: cp.ndarray) -> None:
+    def compute_nonlinear_terms(self, current_dt, current_time, current_step, fields: cp.ndarray, calculate_cfl) -> None:
         """
         Computes the nonlinear terms for the supplied fields. Here, we also
         determine the nonlinear CFL coefficient.
 
         """
-        self.find_derivatives_kernel(
+        # self.find_derivatives_kernel(
+        #     fields,
+        #     self.dft_derivatives,
+        # )
+
+        # self.plan_derivatives_c2r.fft(
+        #     self.dft_derivatives,
+        #     self.real_derivatives,
+        #     cufft.CUFFT_INVERSE
+        # )
+
+        self.find_derivatives_operation(
+            current_dt,
+            current_time,
+            current_step,
             fields,
-            self.dft_derivatives,
+            self.real_derivatives,
         )
 
-        self.cfl_rate[0] = 0
-
-        self.plan_derivatives_c2r.fft(
-            self.dft_derivatives,
+        self.find_nonlinear_bits_operation(
+            current_dt,
+            current_time,
+            current_step,
             self.real_derivatives,
-            cufft.CUFFT_INVERSE
+            self.dft_bits,
+            calculate_cfl,
         )
 
         # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits_kernel(
-            self.real_derivatives,
-            self.cfl_rate
-        )
-
-        # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(
-            self.real_bits, 
-            self.dft_bits, 
-            cufft.CUFFT_FORWARD
-        )
+        # self.find_nonlinear_bits_kernel(
+        #     self.real_derivatives,
+        #     self.cfl_rate
+        # )
+        #
+        # # NB: real_derivatives and real_bits are the same array
+        # self.plan_bits_r2c.fft(
+        #     self.real_bits, 
+        #     self.dft_bits, 
+        #     cufft.CUFFT_FORWARD
+        # )
 
     def finish_time_step(self) -> None:
         super().finish_time_step()
