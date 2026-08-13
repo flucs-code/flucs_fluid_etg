@@ -27,23 +27,27 @@ __device__ void get_linear_matrix(
     // Generate the linear matrix
     matrix[0][0] = FLUCS_COMPLEX(
         COEFFA * (1 + TAUBAR) * kz * kz,
-        (2 * (1 + TAUBAR) * KAPPAB - TAUBAR * KAPPAN) * ky);
+        (2 * (1 + TAUBAR) * KAPPAB - TAUBAR * KAPPAN) * ky
+    );
 
     matrix[0][1] = FLUCS_COMPLEX(
         -TAUBAR * (COEFFA + COEFFB) * kz * kz,
-        -2 * TAUBAR * KAPPAB * ky);
+        -2 * TAUBAR * KAPPAB * ky
+    );
 
     matrix[1][0] = FLUCS_COMPLEX(
         -(2.0/3) * (COEFFA + COEFFB) * (1 + 1/TAUBAR) * kz * kz,
-        (KAPPAT - (4.0/3) * (1 + 1/TAUBAR) * KAPPAB) * ky);
+        (KAPPAT - (4.0/3) * (1 + 1/TAUBAR) * KAPPAB) * ky
+    );
 
     matrix[1][1] = FLUCS_COMPLEX(
-        (2.0/3) * (COEFFC + COEFFA*(1 + COEFFB/COEFFA)*(1 + COEFFB/COEFFA)) * kz * kz,
-        (14.0/3) * KAPPAB * ky);
+        (2.0/3) * (
+            COEFFC + COEFFA*(1 + COEFFB/COEFFA)*(1 + COEFFB/COEFFA)
+        ) * kz * kz,
+        (14.0/3) * KAPPAB * ky
+    );
 }
 
-// __device__ __forceinline__
-// void find_derivatives(
 __global__ void find_derivatives(
     const FLUCS_FLOAT current_time,
     FLUCS_COMPLEX fields[NUMBER_OF_FIELDS][HALFSIZE],
@@ -118,15 +122,14 @@ __device__ void add_nonlinear_terms(
     const size_t iky = indices.iky;
 
     // Wavenumbers and indices 
-    const FLUCS_FLOAT kx = kx_from_ikx(ikx);
-    const FLUCS_FLOAT ky = ky_from_iky(iky);
+    const FLUCS_COMPLEX dx = dx_from_ikx(ikx);
+    const FLUCS_COMPLEX dy = dy_from_iky(iky);
 
     // Calculate nonlinear terms
     explicit_terms[1] += DFT_FULLSIZE_FACTOR * (
-                            + FLUCS_COMPLEX(-ky * dft_bits_global[0][index].imag(),
-                                             ky * dft_bits_global[0][index].real())
-                            + FLUCS_COMPLEX( kx * dft_bits_global[1][index].imag(),
-                                            -kx * dft_bits_global[1][index].real()));
+                            + dy * dft_bits_global[0][index]
+                            - dx * dft_bits_global[1][index]
+                        );
 
 }
 
@@ -151,7 +154,9 @@ struct FreeEnergy_Functor {
             phi.real() * phi.real() + phi.imag() * phi.imag()
         ) * (1 + 1 / TAUBAR) / (2 * TAUBAR);
 
-        const FLUCS_FLOAT T2_contribution = (3.0/4) * (T.real() * T.real() + T.imag() * T.imag());
+        const FLUCS_FLOAT T2_contribution = (3.0/4) * (
+            T.real() * T.real() + T.imag() * T.imag()
+        );
 
         return phi2_contribution + T2_contribution;
     }
