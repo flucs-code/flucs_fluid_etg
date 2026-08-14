@@ -86,25 +86,31 @@ __global__ void find_nonlinear_bits(
     const bool calculate_cfl,
     FLUCS_FLOAT* cfl_rate_global
 ) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    const bool in_bounds = index < FULLSIZE;
 
-    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;                                                                                                                                                                             
-    if (!(index < FULLSIZE))
-        return;
+    // Ensure that the entire block is handled correctly
+    const FLUCS_FLOAT dxphi = in_bounds
+        ? real_derivatives_global[0][index]
+        : (FLUCS_FLOAT)0;
 
-    const FLUCS_FLOAT dxphi = real_derivatives_global[0][index];
-    const FLUCS_FLOAT dyphi = real_derivatives_global[1][index];
-    const FLUCS_FLOAT T = real_derivatives_global[2][index];
+    const FLUCS_FLOAT dyphi = in_bounds
+        ? real_derivatives_global[1][index]
+        : (FLUCS_FLOAT)0;
 
     if (calculate_cfl) {
-        const FLUCS_FLOAT cfl_rate = flucs_fabs(dxphi) * (NY_UNPADDED / LY)
+        const FLUCS_FLOAT cfl_rate =
+              flucs_fabs(dxphi) * (NY_UNPADDED / LY)
             + flucs_fabs(dyphi) * (NX_UNPADDED / LX);
         update_cfl(cfl_rate, cfl_rate_global);
     }
 
-    // dxphi T
-    real_bits_global[0][index] = dxphi * T;
+    if (!in_bounds)
+        return;
 
-    // dyphi T
+    const FLUCS_FLOAT T = real_derivatives_global[2][index];
+
+    real_bits_global[0][index] = dxphi * T;
     real_bits_global[1][index] = dyphi * T;
 }
 

@@ -7,7 +7,6 @@ from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-from cupy.cuda import cufft
 
 from .collisional_etg_fourier_diagnostics import HeatfluxDiag
 from .collisional_etg_fourier_diagnostics import FreeEnergyDiag
