@@ -63,6 +63,7 @@ class CollisionalETGFourier(FourierSystem):
             shared_mem=nonlinear_bits_shared_mem,
         )
 
+        # Define functions from kernels
         def find_nonlinear_bits_function(
             current_dt,
             current_time,
@@ -91,10 +92,13 @@ class CollisionalETGFourier(FourierSystem):
                 dft_derivatives,
             )
 
-        self.dft_derivatives_operation = self.create_dft_derivatives_operation(
-            find_derivatives_function=find_derivatives_function,
-            find_real_bits_function=find_nonlinear_bits_function,
-        )
+        if not self.input["setup.linear"]:
+            self.dft_derivatives_operation = (
+                self.create_dft_derivatives_operation(
+                    find_derivatives_function=find_derivatives_function,
+                    find_real_bits_function=find_nonlinear_bits_function,
+                )
+            )
 
     def _allocate_memory(self):
         # GPU arrays
