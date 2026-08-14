@@ -11,3 +11,9 @@ coeffa = -1.0
 coeffb = -1.0
 coeffc = -1.0
 
+[parameters.frozen]
+cutoff_ikx = 1
+cutoff_iky = 1
+cutoff_ikz = 1
+
+amplitude = -1.0

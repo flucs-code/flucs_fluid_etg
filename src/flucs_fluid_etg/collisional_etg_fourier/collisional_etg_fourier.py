@@ -102,6 +102,14 @@ class CollisionalETGFourier(FourierSystem):
         # The arrays for the above are handled by FourierSystem.
         # There are no system-specific arrays that we need to allocate here 
 
+    def _set_initial_conditions(self) -> None:
+        super()._set_initial_conditions()
+
+        frozen_amplitude = self.input["parameters.frozen.amplitude"]
+
+        if frozen_amplitude > 0:
+            pass
+
     def _interpret_input(self):
         """Checks if the input file makes sense"""
 
@@ -160,6 +168,23 @@ class CollisionalETGFourier(FourierSystem):
                                             self.input["parameters.coeffb"])
         self.module_options.define_float("COEFFC",
                                             self.input["parameters.coeffc"])
+
+        if self.input["parameters.frozen.amplitude"] > 0:
+            self.module_options.define_flag("COMPLETE_TIMESTEP")
+            
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKX",
+                self.input["parameters.frozen.cutoff_ikx"]
+            )
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKY",
+                self.input["parameters.frozen.cutoff_iky"]
+            )
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKZ",
+                self.input["parameters.frozen.cutoff_ikz"]
+            )
+
 
         charge = self.input["parameters.charge"]
         tratio = self.input["parameters.tratio"]
