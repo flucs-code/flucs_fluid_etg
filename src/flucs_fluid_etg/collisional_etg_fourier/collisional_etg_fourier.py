@@ -107,8 +107,65 @@ class CollisionalETGFourier(FourierSystem):
 
         frozen_amplitude = self.input["parameters.frozen.amplitude"]
 
-        if frozen_amplitude > 0:
-            pass
+        if frozen_amplitude >= 0.0:
+            
+            # set region below cutoff to 0:
+            co_ikz = self.input["parameters.frozen.cutoff_ikz"]
+            co_ikx = self.input["parameters.frozen.cutoff_ikx"]
+            co_iky = self.input["parameters.frozen.cutoff_iky"]
+
+            if co_ikx<0 or co_iky<0 or co_ikz<0:
+                from flucs.input import InvalidFlucsInputFileError
+                raise InvalidFlucsInputFileError('Freezing cut-offs must be positive.')
+
+            iz = np.r_[
+                np.arange(co_ikz+1),
+                np.arange(self.nz - co_ikz , self.nz)
+            ]
+
+            ix = np.r_[
+                np.arange(co_ikx+1),
+                np.arange(self.nx - co_ikx , self.nx)
+            ]
+
+            iy = np.arange(co_iky+1)
+
+            self.fields_initial[
+                :,
+                iz[:, None, None],
+                ix[None, :, None],
+                iy[None, None, :]
+            ] = 0
+            
+            from flucs.utilities.messages import flucsprint
+            flucsprint(f"Freezing fields below (ikz,ikx,iky) ="
+                       +f" ({co_ikz,co_ikx,co_iky})")
+
+            # set streamer initial condition
+            if self.input["parameters.frozen.use_eigenmode"]:
+                
+                eigsys = self.compute_linear_eigensystem_cpu()
+                eigvals = eigsys["eigvals"][:,1,0,1]
+                # (mode,          nz, nx, half_ny) 
+                idx_unstable = np.argmax(eigvals.imag)
+                eigvec = eigsys["eigvecs"][idx_unstable,:,1,0,1]
+                # (mode, nfields, nz, nx, half_ny) 
+                
+                # normalise
+                box_mode = frozen_amplitude * eigvec / eigvec[1]
+
+            else:
+                # convention is that phase and ratio determine
+                # \varphi / \delta T
+                frozen_phase = self.input["parameters.frozen.streamer_phase"]
+                frozen_ratio = self.input["parameters.frozen.streamer_ratio"]
+                frozen_ratio *= np.cos(frozen_phase)+np.sin(frozen_phase)*1j
+                box_mode = frozen_amplitude * np.array([frozen_ratio,1])
+
+            flucsprint(f"Set box mode amplitude to phase {np.angle(box_mode[0]):.2f} and ratio {np.abs(box_mode[0]/frozen_amplitude):.2f}")
+            
+            self.fields_initial[:,1,0,1] = box_mode
+
 
     def _interpret_input(self):
         """Checks if the input file makes sense"""
@@ -285,3 +342,54 @@ class CollisionalETGFourier(FourierSystem):
         )
 
         return linear_matrix
+
+
+    def compute_linear_eigensystem_cpu(self):
+        """
+        Computes both the eigenvalues and (normalised) eigenvectors
+        of the linear matrix that is used by the system.
+
+        The eigenvalues are the complex frequencies of
+        Fourier modes of the form exp(-i*omega*t).
+
+        The eigenvectors are normalised to unit L2 norm and a phase
+        where the component with largest absolute value is real and positive.
+
+        This is similar to FourierSystem.compute_linear_eigensystem
+        """
+        linear_matrix = self.compute_linear_matrix_reference()
+
+        # Shape: (field, field, z, x, ky)
+        matrix = np.moveaxis(linear_matrix, (0, 1), (-2, -1))
+
+        eigvals, eigvecs = np.linalg.eig(matrix)
+
+        # Match FourierSystem convention:
+        eigvals = (-1j * eigvals).transpose(3, 0, 1, 2)
+        eigvecs = eigvecs.transpose(4, 3, 0, 1, 2)
+
+        eigvecs /= np.linalg.norm(eigvecs, axis=1, keepdims=True)
+
+        indices = np.abs(eigvecs).argmax(axis=1, keepdims=True)
+        components = np.take_along_axis(eigvecs, indices, axis=1)
+
+        phase = np.where(
+            np.abs(components) > 0,
+            np.sign(components),
+            1.0 + 0.0j,
+        )
+        eigvecs *= np.conj(phase)
+
+        # Compute inverse of solver eigenvectors for projection
+        eigvecs_inverse = np.linalg.inv(
+            eigvecs.transpose(2, 3, 4, 1, 0)
+        ).transpose(3, 4, 0, 1, 2)
+
+        # Return dict
+        return {
+            "eigvals": eigvals,
+            "eigvecs": eigvecs,
+            "eigvecs_inverse": eigvecs_inverse,
+        }
+
+
