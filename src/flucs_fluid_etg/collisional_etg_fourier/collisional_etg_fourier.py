@@ -7,7 +7,6 @@ from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-from cupy.cuda import cufft
 
 from .collisional_etg_fourier_diagnostics import HeatfluxDiag
 from .collisional_etg_fourier_diagnostics import FreeEnergyDiag
@@ -51,27 +50,65 @@ class CollisionalETGFourier(FourierSystem):
         self.find_derivatives_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_derivatives",
-            grid=(self.half_padded_cuda_grid_size,),
+            grid=(self.half_cuda_grid_size,),
             block=(self.cuda_block_size,),
         )
 
         self.find_nonlinear_bits_kernel = KernelWrapper(
             system=self,
             cuda_kernel_name="find_nonlinear_bits",
-            grid=(self.full_padded_cuda_grid_size,),
+            grid=(self.full_cuda_grid_size,),
             block=(self.cuda_block_size,),
             shared_mem=nonlinear_bits_shared_mem,
         )
+
+        # Define functions from kernels
+        def find_nonlinear_bits_function(
+            current_dt,
+            current_time,
+            current_step: int,
+            calculate_cfl: bool,
+            memory_dict: dict,
+        ) -> None:
+            real_derivatives = memory_dict["first_intermediates_real"]
+            real_bits = memory_dict["second_intermediates_real"]
+            self.find_nonlinear_bits_kernel(
+                real_derivatives,
+                real_bits,
+                calculate_cfl,
+                self.cfl_rate,
+            )
+
+        def find_derivatives_function(
+            current_dt,
+            current_time,
+            current_step: int,
+            fields: cp.ndarray,
+            memory_dict: dict,
+        ) -> None:
+            self.find_derivatives_kernel(
+                self.float(current_time),
+                fields,
+                memory_dict["first_intermediates_fourier"],
+            )
+
+        if not self.input["setup.linear"]:
+            self.dft_derivatives_operation, self.dft_bits = (
+                self.create_dealiased_operation(
+                    n_in=self.number_of_dft_derivatives,
+                    n_out=self.number_of_dft_bits,
+                    create_first_intermediates=find_derivatives_function,
+                    create_second_intermediates=find_nonlinear_bits_function,
+                    combine_first_and_second_intermediates=True,
+                )
+            )
 
     def _allocate_memory(self):
         # GPU arrays
 
         # First, call FourierSystem's method which allocates
         # self.fields among other things.
-        super()._allocate_memory(
-            allocate_derivatives_and_bits=True,
-            combine_derivatives_and_bits=True
-        )
+        super()._allocate_memory()
 
         # Direct pointers to fields
         self.phi = [cp.ndarray((self.nz, self.nx, self.half_ny),
@@ -255,36 +292,18 @@ class CollisionalETGFourier(FourierSystem):
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def compute_nonlinear_terms(self, fields: cp.ndarray) -> None:
+    def compute_nonlinear_terms(self, current_dt, current_time, current_step, fields: cp.ndarray, calculate_cfl) -> None:
         """
         Computes the nonlinear terms for the supplied fields. Here, we also
         determine the nonlinear CFL coefficient.
 
         """
-        self.find_derivatives_kernel(
+        self.dft_derivatives_operation(
+            current_dt,
+            current_time,
+            current_step,
             fields,
-            self.dft_derivatives,
-        )
-
-        self.cfl_rate[0] = 0
-
-        self.plan_derivatives_c2r.fft(
-            self.dft_derivatives,
-            self.real_derivatives,
-            cufft.CUFFT_INVERSE
-        )
-
-        # NB: real_derivatives and real_bits are the same array
-        self.find_nonlinear_bits_kernel(
-            self.real_derivatives,
-            self.cfl_rate
-        )
-
-        # NB: real_derivatives and real_bits are the same array
-        self.plan_bits_r2c.fft(
-            self.real_bits, 
-            self.dft_bits, 
-            cufft.CUFFT_FORWARD
+            calculate_cfl=calculate_cfl,
         )
 
     def finish_time_step(self) -> None:
@@ -296,13 +315,13 @@ class CollisionalETGFourier(FourierSystem):
             (
                 self.number_of_fields,
                 self.number_of_fields,
-                *self.half_unpadded_tuple
+                *self.half_tuple
             ),
             dtype=self.complex,
         )
 
         # Get wavenumbers
-        kx, ky, kz = self.get_broadcast_wavenumbers()
+        kz, kx, ky = self.get_broadcast_wavenumbers()
 
         # Get parameters
         kappaT = self.input["parameters.kappaT"]
