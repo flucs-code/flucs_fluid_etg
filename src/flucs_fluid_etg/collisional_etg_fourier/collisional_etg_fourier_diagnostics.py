@@ -1,9 +1,9 @@
 from collections.abc import Callable
 
 import cupy as cp
-
 from flucs.diagnostic import FlucsDiagnostic, FlucsDiagnosticVariable
 from flucs.solvers.fourier.fourier_system_reductions import FourierReductions
+
 
 class HeatfluxDiag(FlucsDiagnostic):
     name = "heatflux"
@@ -14,12 +14,11 @@ class HeatfluxDiag(FlucsDiagnostic):
         reductions = FourierReductions(self.system)
 
         # Diagnostic variables
-        self.add_var(FlucsDiagnosticVariable(
-            name="heatflux",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="heatflux", shape=(), dimensions={}, is_complex=False
+            )
+        )
 
         # Reductions
         self.get_heatflux = reductions.get_reduction(
@@ -32,13 +31,10 @@ class HeatfluxDiag(FlucsDiagnostic):
     def ready(self):
         pass
 
-
     def execute(self):
         fields = self.system.get_fields()
 
-        self.vars["heatflux"].data_cache.append(
-            self.get_heatflux(fields).get().item()
-        )
+        self.vars["heatflux"].data_cache.append(self.get_heatflux(fields).get().item())
 
 
 class FreeEnergyDiag(FlucsDiagnostic):
@@ -53,63 +49,58 @@ class FreeEnergyDiag(FlucsDiagnostic):
         reductions = FourierReductions(self.system)
 
         # Diagnostic variables
-        self.add_var(FlucsDiagnosticVariable(
-            name="W",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
-        self.add_var(FlucsDiagnosticVariable(
-            name="dWdt",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
-        self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_coll",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
-        self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_inj",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
-        self.add_var(FlucsDiagnosticVariable(
-            name="dWdt_error",
-            shape=(),
-            dimensions={},
-            is_complex=False
-        ))
+        self.add_var(
+            FlucsDiagnosticVariable(name="W", shape=(), dimensions={}, is_complex=False)
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="dWdt", shape=(), dimensions={}, is_complex=False
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="dWdt_coll", shape=(), dimensions={}, is_complex=False
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="dWdt_inj", shape=(), dimensions={}, is_complex=False
+            )
+        )
+        self.add_var(
+            FlucsDiagnosticVariable(
+                name="dWdt_error", shape=(), dimensions={}, is_complex=False
+            )
+        )
 
         for component in self.system.hyperdissipation_components:
-            self.add_var(FlucsDiagnosticVariable(
-                name=f"dWdt_hyperdissipation_{component}",
-                shape=(),
-                dimensions={},
-                is_complex=False
-            ))
+            self.add_var(
+                FlucsDiagnosticVariable(
+                    name=f"dWdt_hyperdissipation_{component}",
+                    shape=(),
+                    dimensions={},
+                    is_complex=False,
+                )
+            )
 
         # Reductions
         self.get_W = reductions.get_reduction(
             reduction_output="scalar",
             functor="FreeEnergy_Functor",
             input_args="FLUCS_COMPLEX*",
-            complex_output=False
+            complex_output=False,
         )
         self.get_heatflux = reductions.get_reduction(
             reduction_output="scalar",
             functor="Heatflux_Functor",
             input_args="FLUCS_COMPLEX*",
-            complex_output=False
+            complex_output=False,
         )
         self.get_dWdt_coll = reductions.get_reduction(
             reduction_output="scalar",
             functor="FreeEnergyColl_Functor",
             input_args="FLUCS_COMPLEX*",
-            complex_output=False
+            complex_output=False,
         )
         self.get_dWdt_hyperdissipation_component = reductions.get_reduction(
             reduction_output="scalar",
@@ -117,7 +108,6 @@ class FreeEnergyDiag(FlucsDiagnostic):
             input_args="FLUCS_COMPLEX*,FLUCS_FLOAT,int",
             complex_output=False,
         )
-
 
     def ready(self):
         pass
@@ -157,8 +147,7 @@ class FreeEnergyDiag(FlucsDiagnostic):
 
             dWdt_hyperdissipation_component = -result.get().item()
             self.save_data(
-                f"dWdt_hyperdissipation_{component}",
-                dWdt_hyperdissipation_component
+                f"dWdt_hyperdissipation_{component}", dWdt_hyperdissipation_component
             )
             dWdt_hyperdissipation_total += dWdt_hyperdissipation_component
 
