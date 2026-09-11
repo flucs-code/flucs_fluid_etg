@@ -157,8 +157,8 @@ void complete_finish_step(
     const FLUCS_FLOAT dt,
     const FLUCS_FLOAT current_time,
     const long long current_step,
-    const FLUCS_COMPLEX previous_fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
-    FLUCS_COMPLEX current_fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE]
+    const FLUCS_COMPLEX previous_fields_global[NUMBER_OF_FIELDS][HALFSIZE],
+    FLUCS_COMPLEX current_fields_global[NUMBER_OF_FIELDS][HALFSIZE]
 ) {
     indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
     const size_t ikx = indices.ikx;
