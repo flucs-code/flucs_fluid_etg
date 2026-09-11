@@ -3,21 +3,21 @@ Pseudospectral Fourier implementation of collisional ETG model of Adkins et al.
 (2023).The nonlinear term is handled explicitly using the Adams-Bashforth
 3-step method.
 """
+
 from typing import ClassVar
 
 import cupy as cp
 import numpy as np
-
-from .collisional_etg_fourier_diagnostics import HeatfluxDiag
-from .collisional_etg_fourier_diagnostics import FreeEnergyDiag
-
 from flucs.diagnostic import FlucsDiagnostic
-from flucs.utilities.cupy import KernelWrapper
 from flucs.solvers.fourier.fourier_system import FourierSystem
+from flucs.utilities.cupy import KernelWrapper
+
+from .collisional_etg_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
 
 
 class CollisionalETGFourier(FourierSystem):
     """Fourier solver for the 3D collisional ETG system."""
+
     number_of_fields = 2
     number_of_dft_derivatives = 3
     number_of_dft_bits = 2
@@ -26,14 +26,12 @@ class CollisionalETGFourier(FourierSystem):
     phi: list
     T: list
 
-    # CUDA grids and kernels 
+    # CUDA grids and kernels
     find_derivatives_kernel: KernelWrapper
     find_nonlinear_bits_kernel: KernelWrapper
 
     # Supported diagnostics
-    diags: ClassVar[set[type[FlucsDiagnostic]]] = {
-        HeatfluxDiag, FreeEnergyDiag
-    }
+    diags: ClassVar[set[type[FlucsDiagnostic]]] = {HeatfluxDiag, FreeEnergyDiag}
 
     def ready(self):
         # Anything system-specific goes here
@@ -42,9 +40,7 @@ class CollisionalETGFourier(FourierSystem):
     def register_kernels(self):
         super().register_kernels()
 
-        nonlinear_bits_shared_mem = (
-            self.cuda_block_size * self.float().nbytes
-        )
+        nonlinear_bits_shared_mem = self.cuda_block_size * self.float().nbytes
 
         # System-specific kernels
         self.find_derivatives_kernel = KernelWrapper(
@@ -111,19 +107,31 @@ class CollisionalETGFourier(FourierSystem):
         super()._allocate_memory()
 
         # Direct pointers to fields
-        self.phi = [cp.ndarray((self.nz, self.nx, self.half_ny),
-                               dtype=self.complex,
-                               memptr=self.fields[0][0, 0, 0, 0].data),
-                    cp.ndarray((self.nz, self.nx, self.half_ny),
-                               dtype=self.complex,
-                               memptr=self.fields[1][0, 0, 0, 0].data),]
+        self.phi = [
+            cp.ndarray(
+                (self.nz, self.nx, self.half_ny),
+                dtype=self.complex,
+                memptr=self.fields[0][0, 0, 0, 0].data,
+            ),
+            cp.ndarray(
+                (self.nz, self.nx, self.half_ny),
+                dtype=self.complex,
+                memptr=self.fields[1][0, 0, 0, 0].data,
+            ),
+        ]
 
-        self.T = [cp.ndarray((self.nz, self.nx, self.half_ny),
-                             dtype=self.complex,
-                             memptr=self.fields[0][1, 0, 0, 0].data),
-                  cp.ndarray((self.nz, self.nx, self.half_ny),
-                             dtype=self.complex,
-                             memptr=self.fields[1][1, 0, 0, 0].data),]
+        self.T = [
+            cp.ndarray(
+                (self.nz, self.nx, self.half_ny),
+                dtype=self.complex,
+                memptr=self.fields[0][1, 0, 0, 0].data,
+            ),
+            cp.ndarray(
+                (self.nz, self.nx, self.half_ny),
+                dtype=self.complex,
+                memptr=self.fields[1][1, 0, 0, 0].data,
+            ),
+        ]
 
         # All fields and derivatives to be transformed to real space
         # are kept in one huge array (dft_derivatives).
@@ -137,7 +145,7 @@ class CollisionalETGFourier(FourierSystem):
         # 1 dyphi * T
 
         # The arrays for the above are handled by FourierSystem.
-        # There are no system-specific arrays that we need to allocate here 
+        # There are no system-specific arrays that we need to allocate here
 
     def _set_initial_conditions(self) -> None:
         super()._set_initial_conditions()
@@ -145,49 +153,41 @@ class CollisionalETGFourier(FourierSystem):
         frozen_amplitude = self.input["parameters.frozen.amplitude"]
 
         if frozen_amplitude >= 0.0:
-            
             # set region below cutoff to 0:
             co_ikz = self.input["parameters.frozen.cutoff_ikz"]
             co_ikx = self.input["parameters.frozen.cutoff_ikx"]
             co_iky = self.input["parameters.frozen.cutoff_iky"]
 
-            if co_ikx<0 or co_iky<0 or co_ikz<0:
+            if co_ikx < 0 or co_iky < 0 or co_ikz < 0:
                 from flucs.input import InvalidFlucsInputFileError
-                raise InvalidFlucsInputFileError('Freezing cut-offs must be positive.')
 
-            iz = np.r_[
-                np.arange(co_ikz+1),
-                np.arange(self.nz - co_ikz , self.nz)
-            ]
+                raise InvalidFlucsInputFileError("Freezing cut-offs must be positive.")
 
-            ix = np.r_[
-                np.arange(co_ikx+1),
-                np.arange(self.nx - co_ikx , self.nx)
-            ]
+            iz = np.r_[np.arange(co_ikz + 1), np.arange(self.nz - co_ikz, self.nz)]
 
-            iy = np.arange(co_iky+1)
+            ix = np.r_[np.arange(co_ikx + 1), np.arange(self.nx - co_ikx, self.nx)]
+
+            iy = np.arange(co_iky + 1)
 
             self.fields_initial[
-                :,
-                iz[:, None, None],
-                ix[None, :, None],
-                iy[None, None, :]
+                :, iz[:, None, None], ix[None, :, None], iy[None, None, :]
             ] = 0
-            
+
             from flucs.utilities.messages import flucsprint
-            flucsprint(f"Freezing fields below (ikz,ikx,iky) ="
-                       +f" ({co_ikz,co_ikx,co_iky})")
+
+            flucsprint(
+                "Freezing fields below (ikz,ikx,iky) =" + f" ({co_ikz, co_ikx, co_iky})"
+            )
 
             # set streamer initial condition
             if self.input["parameters.frozen.use_eigenmode"]:
-                
                 eigsys = self.compute_linear_eigensystem_cpu()
-                eigvals = eigsys["eigvals"][:,1,0,1]
-                # (mode,          nz, nx, half_ny) 
+                eigvals = eigsys["eigvals"][:, 1, 0, 1]
+                # (mode,          nz, nx, half_ny)
                 idx_unstable = np.argmax(eigvals.imag)
-                eigvec = eigsys["eigvecs"][idx_unstable,:,1,0,1]
-                # (mode, nfields, nz, nx, half_ny) 
-                
+                eigvec = eigsys["eigvecs"][idx_unstable, :, 1, 0, 1]
+                # (mode, nfields, nz, nx, half_ny)
+
                 # normalise
                 box_mode = frozen_amplitude * eigvec / eigvec[1]
 
@@ -196,13 +196,14 @@ class CollisionalETGFourier(FourierSystem):
                 # \varphi / \delta T
                 frozen_phase = self.input["parameters.frozen.streamer_phase"]
                 frozen_ratio = self.input["parameters.frozen.streamer_ratio"]
-                frozen_ratio *= np.cos(frozen_phase)+np.sin(frozen_phase)*1j
-                box_mode = frozen_amplitude * np.array([frozen_ratio,1])
+                frozen_ratio *= np.cos(frozen_phase) + np.sin(frozen_phase) * 1j
+                box_mode = frozen_amplitude * np.array([frozen_ratio, 1])
 
-            flucsprint(f"Set box mode amplitude to phase {np.angle(box_mode[0]):.2f} and ratio {np.abs(box_mode[0]/frozen_amplitude):.2f}")
-            
-            self.fields_initial[:,1,0,1] = box_mode
+            flucsprint(
+                f"Set box mode amplitude to phase {np.angle(box_mode[0]):.2f} and ratio {np.abs(box_mode[0] / frozen_amplitude):.2f}"
+            )
 
+            self.fields_initial[:, 1, 0, 1] = box_mode
 
     def _interpret_input(self):
         """Checks if the input file makes sense"""
@@ -222,22 +223,21 @@ class CollisionalETGFourier(FourierSystem):
 
         if coeffa < 0:
             coeffa = (
-                (217/64 + 151/(8 * np.sqrt(2) * charge) + 9/(2 * charge**2))
-                / (1 + 61/(8 * np.sqrt(2) * charge) + 9/(2 * charge**2))
-            )
+                217 / 64 + 151 / (8 * np.sqrt(2) * charge) + 9 / (2 * charge**2)
+            ) / (1 + 61 / (8 * np.sqrt(2) * charge) + 9 / (2 * charge**2))
 
         if coeffb < 0:
             coeffb = 2.5 * (
-                (33/16 + 45/(8 * np.sqrt(2) * charge))
-                / (1 + 61/(8 * np.sqrt(2) * charge) + 9/(2 * charge**2))
+                (33 / 16 + 45 / (8 * np.sqrt(2) * charge))
+                / (1 + 61 / (8 * np.sqrt(2) * charge) + 9 / (2 * charge**2))
             )
 
         if coeffc < 0:
             coeffc = 6.25 * (
-                (13/4 + 45/(8 * np.sqrt(2) * charge))
-                / (1 + 61/(8 * np.sqrt(2) * charge) + 9/(2 * charge**2))
+                (13 / 4 + 45 / (8 * np.sqrt(2) * charge))
+                / (1 + 61 / (8 * np.sqrt(2) * charge) + 9 / (2 * charge**2))
             )
-            coeffc = coeffc - (coeffb**2)/coeffa
+            coeffc = coeffc - (coeffb**2) / coeffa
 
         # Hack, remove, cannot push this kind of stuff...
         self.input._initialised = False
@@ -249,41 +249,30 @@ class CollisionalETGFourier(FourierSystem):
     def setup_cuda_definitions(self) -> None:
         # System-specific constants for the kernels
 
-        self.module_options.define_float("KAPPAT",
-                                            self.input["parameters.kappaT"])
-        self.module_options.define_float("KAPPAN",
-                                            self.input["parameters.kappaN"])
-        self.module_options.define_float("KAPPAB",
-                                            self.input["parameters.kappaB"])
+        self.module_options.define_float("KAPPAT", self.input["parameters.kappaT"])
+        self.module_options.define_float("KAPPAN", self.input["parameters.kappaN"])
+        self.module_options.define_float("KAPPAB", self.input["parameters.kappaB"])
 
-        self.module_options.define_float("COEFFA",
-                                            self.input["parameters.coeffa"])
-        self.module_options.define_float("COEFFB",
-                                            self.input["parameters.coeffb"])
-        self.module_options.define_float("COEFFC",
-                                            self.input["parameters.coeffc"])
+        self.module_options.define_float("COEFFA", self.input["parameters.coeffa"])
+        self.module_options.define_float("COEFFB", self.input["parameters.coeffb"])
+        self.module_options.define_float("COEFFC", self.input["parameters.coeffc"])
 
         if self.input["parameters.frozen.amplitude"] > 0:
             self.module_options.define_flag("COMPLETE_TIMESTEP")
-            
-            self.module_options.define_int(
-                "FROZEN_CUTOFF_IKX",
-                self.input["parameters.frozen.cutoff_ikx"]
-            )
-            self.module_options.define_int(
-                "FROZEN_CUTOFF_IKY",
-                self.input["parameters.frozen.cutoff_iky"]
-            )
-            self.module_options.define_int(
-                "FROZEN_CUTOFF_IKZ",
-                self.input["parameters.frozen.cutoff_ikz"]
-            )
 
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKX", self.input["parameters.frozen.cutoff_ikx"]
+            )
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKY", self.input["parameters.frozen.cutoff_iky"]
+            )
+            self.module_options.define_int(
+                "FROZEN_CUTOFF_IKZ", self.input["parameters.frozen.cutoff_ikz"]
+            )
 
         charge = self.input["parameters.charge"]
         tratio = self.input["parameters.tratio"]
-        self.module_options.define_float("TAUBAR",
-                                            tratio / charge)
+        self.module_options.define_float("TAUBAR", tratio / charge)
 
         # Call this setup the CUDA definitions
         super().setup_cuda_definitions()
@@ -292,7 +281,9 @@ class CollisionalETGFourier(FourierSystem):
         # Do anything model-specific here, then call the parent's method
         super().begin_time_step()
 
-    def compute_nonlinear_terms(self, current_dt, current_time, current_step, fields: cp.ndarray, calculate_cfl) -> None:
+    def compute_nonlinear_terms(
+        self, current_dt, current_time, current_step, fields: cp.ndarray, calculate_cfl
+    ) -> None:
         """
         Computes the nonlinear terms for the supplied fields. Here, we also
         determine the nonlinear CFL coefficient.
@@ -312,16 +303,12 @@ class CollisionalETGFourier(FourierSystem):
     def compute_linear_matrix_reference(self) -> np.ndarray:
         # Initialise linear matrix
         linear_matrix = np.zeros(
-            (
-                self.number_of_fields,
-                self.number_of_fields,
-                *self.half_tuple
-            ),
+            (self.number_of_fields, self.number_of_fields, *self.half_tuple),
             dtype=self.complex,
         )
 
         # Get wavenumbers
-        kz, kx, ky = self.get_broadcast_wavenumbers()
+        kz, _, ky = self.get_broadcast_wavenumbers()
 
         # Get parameters
         kappaT = self.input["parameters.kappaT"]
@@ -332,9 +319,7 @@ class CollisionalETGFourier(FourierSystem):
         coeffb = self.input["parameters.coeffb"]
         coeffc = self.input["parameters.coeffc"]
 
-        taubar = (
-            self.input["parameters.tratio"] / self.input["parameters.charge"]
-        )
+        taubar = self.input["parameters.tratio"] / self.input["parameters.charge"]
 
         # phi-phi
         linear_matrix[0, 0, :, :, :] = (
@@ -344,8 +329,7 @@ class CollisionalETGFourier(FourierSystem):
 
         # phi-T
         linear_matrix[0, 1, :, :, :] = (
-            -taubar * (coeffa + coeffb) * (kz**2)
-            - 1j * 2.0 * taubar * kappaB * ky
+            -taubar * (coeffa + coeffb) * (kz**2) - 1j * 2.0 * taubar * kappaB * ky
         )
 
         # T-phi
@@ -355,13 +339,11 @@ class CollisionalETGFourier(FourierSystem):
         )
 
         # T-T
-        linear_matrix[1, 1, :, :, :] = (
-            (2.0 / 3.0) * (coeffc + coeffa * (1.0 + coeffb/coeffa)**2) * (kz**2)
-            + 1j * (14.0 / 3.0) * kappaB * ky
-        )
+        linear_matrix[1, 1, :, :, :] = (2.0 / 3.0) * (
+            coeffc + coeffa * (1.0 + coeffb / coeffa) ** 2
+        ) * (kz**2) + 1j * (14.0 / 3.0) * kappaB * ky
 
         return linear_matrix
-
 
     def compute_linear_eigensystem_cpu(self):
         """
@@ -400,9 +382,9 @@ class CollisionalETGFourier(FourierSystem):
         eigvecs *= np.conj(phase)
 
         # Compute inverse of solver eigenvectors for projection
-        eigvecs_inverse = np.linalg.inv(
-            eigvecs.transpose(2, 3, 4, 1, 0)
-        ).transpose(3, 4, 0, 1, 2)
+        eigvecs_inverse = np.linalg.inv(eigvecs.transpose(2, 3, 4, 1, 0)).transpose(
+            3, 4, 0, 1, 2
+        )
 
         # Return dict
         return {
@@ -410,5 +392,3 @@ class CollisionalETGFourier(FourierSystem):
             "eigvecs": eigvecs,
             "eigvecs_inverse": eigvecs_inverse,
         }
-
-
