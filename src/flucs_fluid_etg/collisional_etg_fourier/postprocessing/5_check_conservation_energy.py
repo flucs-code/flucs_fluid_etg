@@ -7,7 +7,6 @@ from flucs.postprocessing import FlucsPostProcessing
 
 
 def free_energy_check(post):
-
     # Get valid files for the specified variable
     nc_paths = post.get_valid_netcdf_paths("free_energy/dWdt")
 

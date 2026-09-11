@@ -29,3 +29,16 @@ cutoff_iky = 1
 cutoff_ikz = 1
 
 
+
+# spectral diagnostics
+[output.spectra]
+save_steps = -1
+diags = []
+type = "netcdf4"
+
+
+# Options for computing abs(phi^2) and abs(T^2)
+#diags = [
+#    {name = "spectra", options = {spectra = ["kx", "ky", "kz", "kperp"], save_2d = true, save_3d = true}},
+#    {name = "spectral_free_energy", options = {spectra = ["kx", "ky", "kz", "kperp"]}},
+#]

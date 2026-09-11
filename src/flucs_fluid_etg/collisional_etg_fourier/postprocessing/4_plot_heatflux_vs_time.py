@@ -7,7 +7,6 @@ from flucs.postprocessing import FlucsPostProcessing
 
 
 def plot_heatflux_vs_time(post):
-
     # Get valid files for the specified variable
     nc_paths = post.get_valid_netcdf_paths("heatflux/heatflux")
 

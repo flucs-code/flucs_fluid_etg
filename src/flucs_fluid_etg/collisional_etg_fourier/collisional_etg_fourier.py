@@ -12,7 +12,12 @@ from flucs.diagnostic import FlucsDiagnostic
 from flucs.solvers.fourier.fourier_system import FourierSystem
 from flucs.utilities.cupy import KernelWrapper
 
-from .collisional_etg_fourier_diagnostics import FreeEnergyDiag, HeatfluxDiag
+from .collisional_etg_fourier_diagnostics import (
+    FreeEnergyDiag,
+    HeatfluxDiag,
+    SpectraDiag,
+    SpectralFreeEnergyDiag,
+)
 
 
 class CollisionalETGFourier(FourierSystem):
@@ -31,7 +36,12 @@ class CollisionalETGFourier(FourierSystem):
     find_nonlinear_bits_kernel: KernelWrapper
 
     # Supported diagnostics
-    diags: ClassVar[set[type[FlucsDiagnostic]]] = {HeatfluxDiag, FreeEnergyDiag}
+    diags: ClassVar[set[type[FlucsDiagnostic]]] = {
+        HeatfluxDiag,
+        FreeEnergyDiag,
+        SpectralFreeEnergyDiag,
+        SpectraDiag,
+    }
 
     def ready(self):
         # Anything system-specific goes here

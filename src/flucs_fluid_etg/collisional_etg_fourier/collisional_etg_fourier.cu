@@ -5,6 +5,16 @@
 // A lot of basic functionality is already implemented here.
 #include "flucs/solvers/fourier/fourier_system.cuh"
 
+template <typename T_output, typename Functor, typename... InputArgs>
+__global__ void spectral_pointwise(
+    T_output* __restrict__ output,
+    InputArgs... input_args
+) {
+    const size_t index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (index < HALFSIZE)
+        output[index] = Functor{input_args...}(index);
+}
+
 extern "C" {
 
 __device__ void get_linear_matrix(
@@ -196,6 +206,25 @@ struct FreeEnergy_Functor {
         );
 
         return phi2_contribution + T2_contribution;
+    }
+};
+
+// Spectral diagnostics.  The reductions account for the omitted negative-ky
+// half of the real-to-complex transform when appropriate.
+struct PhiSquared_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        const FLUCS_COMPLEX phi = fields[index];
+        return phi.real() * phi.real() + phi.imag() * phi.imag();
+    }
+};
+
+struct TSquared_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        const FLUCS_COMPLEX temperature = fields[index + HALFSIZE];
+        return temperature.real() * temperature.real()
+            + temperature.imag() * temperature.imag();
     }
 };
 
