@@ -107,8 +107,8 @@ def _plot_nonlinear_parts(ax, wavenumber, spectrum, label, colour, linestyle, ma
         "--": "-."
         }
     for positive, suffix, part_linestyle in (
-        (True, "$< 0$", linestyle),
-        (False, "$> 0$", neg_linestyle[linestyle]), #  Note labels have the opposite signs from the calculation
+        (True, "$> 0$", linestyle),
+        (False, "$< 0$", neg_linestyle[linestyle]), #  Note labels have the opposite signs from the calculation
     ):
         part = (
             np.where(spectrum > 0.0, spectrum, 0.0)
