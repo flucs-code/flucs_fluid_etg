@@ -165,11 +165,11 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
 
     The diagnostic saves ``W``, ``dWdt``, temperature-gradient injection,
     parallel collisional dissipation, and all hyperdissipation components
-    clumped into one term.  The nonlinear exchange is intentionally left for
-    postprocessing as ``dWdt - injection - parallel - hyperdissipation``.
+    clumped into one term, and the directly evaluated nonlinear exchange.
 
-    Supported contractions are ``kx``, ``ky``, ``kz``, ``kperp``, ``kxky`` and
-    ``kxkykz``.  The last one is the unreduced Fourier-space half grid.
+    Supported contractions are ``kx``, ``ky``, ``kz``, ``kperp``, ``kzkperp``,
+    ``kxky`` and ``kxkykz``.  The last one is the unreduced Fourier-space half
+    grid.
     """
 
     name = "spectral_free_energy"
@@ -183,6 +183,7 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
         "dWdt_inj",
         "dWdt_coll",
         "dWdt_hyperdissipation",
+        "dWdt_nonlinear",
     )
 
     def _full_reduction(self, functor, input_args):
@@ -194,7 +195,14 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
             cuda_kernel_name=(
                 f"spectral_pointwise<FLUCS_FLOAT,{functor},{input_args}>"
             ),
-            grid=(self.system.half_cuda_grid_size,),
+            grid=(
+                getattr(
+                    self.system,
+                    "half_cuda_grid_size",
+                    (self.system.half_size + self.system.cuda_block_size - 1)
+                    // self.system.cuda_block_size,
+                ),
+            ),
             block=(self.system.cuda_block_size,),
         )
 
@@ -206,7 +214,15 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
 
     def init_vars(self):
         reductions = FourierReductions(self.system)
-        valid_spectra = ("kx", "ky", "kz", "kperp", "kxky", "kxkykz")
+        valid_spectra = (
+            "kx",
+            "ky",
+            "kz",
+            "kperp",
+            "kzkperp",
+            "kxky",
+            "kxkykz",
+        )
         spectra = self.spectra
         invalid = set(spectra) - set(valid_spectra)
         if invalid:
@@ -275,6 +291,25 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
                     "FreeEnergyHyperdissipation_Functor",
                     "FLUCS_COMPLEX*,FLUCS_FLOAT",
                 ),
+                "nonlinear": get_reduction(
+                    reduction_output=spectrum,
+                    functor="FreeEnergyNonlinear_Functor",
+                    input_args=(
+                        "FLUCS_COMPLEX*,FLUCS_FLOAT,FLUCS_FLOAT,long long,"
+                        "const FLUCS_COMPLEX (*)[HALFSIZE]"
+                    ),
+                    complex_output=False,
+                )
+                if spectrum != "kxkykz" and not self.system.input["setup.linear"]
+                else (
+                    get_reduction(
+                        "FreeEnergyNonlinear_Functor",
+                        "FLUCS_COMPLEX*,FLUCS_FLOAT,FLUCS_FLOAT,long long,"
+                        "const FLUCS_COMPLEX (*)[HALFSIZE]",
+                    )
+                    if not self.system.input["setup.linear"]
+                    else None
+                ),
             }
 
     def ready(self):
@@ -282,10 +317,17 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
 
     def execute(self):
         current_dt = self.system.float(self.system.current_dt)
+        current_time = self.system.float(self.system.current_time)
+        current_step = self.system.int(self.system.current_step)
         adaptive_rate = self.system.float(self.system.adaptive_rate)
         fields = self.system.get_fields()
         fields_prev = self.system.get_fields(1)
         kappaT = self.system.input["parameters.kappaT"]
+        if not self.system.input["setup.linear"]:
+            self.system.compute_nonlinear_terms(
+                current_dt, current_time, current_step, fields, False
+            )
+            dft_bits = self.system.dft_bits
 
         for spectrum, reductions in self.reductions.items():
             W = reductions["W"](fields)
@@ -307,15 +349,26 @@ class SpectralFreeEnergyDiag(FlucsDiagnostic):
                 f"{spectrum}_spectra/dWdt_hyperdissipation",
                 (-reductions["hyper"](fields, adaptive_rate)).get(),
             )
+            dWdt_nonlinear = (
+                reductions["nonlinear"](
+                    fields, current_dt, current_time, current_step, dft_bits
+                )
+                if reductions["nonlinear"] is not None
+                else cp.zeros_like(W)
+            )
+            self.save_data(
+                f"{spectrum}_spectra/dWdt_nonlinear", dWdt_nonlinear.get()
+            )
 
 
 class SpectraDiag(FlucsDiagnostic):
     """Compute spectra of ``abs(phi)**2`` and ``abs(T)**2``.
 
     ``spectra`` is a list of Fourier contractions.  The supported one- and
-    two-dimensional contractions are ``kx``, ``ky``, ``kz``, ``kperp`` and
-    ``kxky``.  ``save_3d`` additionally saves the unreduced Fourier-space
-    arrays on the real-to-complex half grid, with dimensions ``kz, kx, ky``.
+    two-dimensional contractions are ``kx``, ``ky``, ``kz``, ``kperp``,
+    ``kzkperp``, ``kxky`` and ``kxkykz``.  The latter is the unreduced
+    Fourier-space half grid, with dimensions ``kz, kx, ky``.  ``save_3d``
+    additionally saves the same data under ``full_spectra``.
 
     For example::
 
@@ -338,9 +391,43 @@ class SpectraDiag(FlucsDiagnostic):
     get_phi2: dict[str, Callable[..., cp.ndarray]]
     get_T2: dict[str, Callable[..., cp.ndarray]]
 
+    def _full_reduction(self, functor, input_args):
+        output = self.system.get_temp_array(
+            self.system.half_size, is_complex=False
+        ).reshape(self.system.half_tuple)
+        kernel = KernelWrapper(
+            system=self.system,
+            cuda_kernel_name=(
+                f"spectral_pointwise<FLUCS_FLOAT,{functor},{input_args}>"
+            ),
+            grid=(
+                getattr(
+                    self.system,
+                    "half_cuda_grid_size",
+                    (self.system.half_size + self.system.cuda_block_size - 1)
+                    // self.system.cuda_block_size,
+                ),
+            ),
+            block=(self.system.cuda_block_size,),
+        )
+
+        def reduction(*args):
+            kernel(output, *args)
+            return output
+
+        return reduction
+
     def init_vars(self) -> None:
         reductions = FourierReductions(self.system)
-        valid_spectra = ("kx", "ky", "kz", "kperp", "kxky")
+        valid_spectra = (
+            "kx",
+            "ky",
+            "kz",
+            "kperp",
+            "kzkperp",
+            "kxky",
+            "kxkykz",
+        )
         spectra = [self.spectra] if isinstance(self.spectra, str) else self.spectra
         spectra = list(dict.fromkeys(spectra))
         if self.save_2d and "kxky" not in spectra:
@@ -359,7 +446,16 @@ class SpectraDiag(FlucsDiagnostic):
         self.get_phi2 = {}
         self.get_T2 = {}
         for spectrum in spectra:
-            dimensions = reductions.get_dimensions(spectrum)
+            if spectrum == "kxkykz":
+                dimensions = {
+                    "kz": self.system.kz,
+                    "kx": self.system.kx,
+                    "ky": self.system.ky,
+                }
+                get_reduction = self._full_reduction
+            else:
+                dimensions = reductions.get_dimensions(spectrum)
+                get_reduction = reductions.get_reduction
             shape = tuple(dimensions)
             for name in ("phi2", "T2"):
                 self.add_var(
@@ -371,17 +467,21 @@ class SpectraDiag(FlucsDiagnostic):
                     )
                 )
 
-            self.get_phi2[spectrum] = reductions.get_reduction(
+            self.get_phi2[spectrum] = get_reduction(
                 reduction_output=spectrum,
                 functor="PhiSquared_Functor",
                 input_args="FLUCS_COMPLEX*",
                 complex_output=False,
+            ) if spectrum != "kxkykz" else get_reduction(
+                "PhiSquared_Functor", "FLUCS_COMPLEX*"
             )
-            self.get_T2[spectrum] = reductions.get_reduction(
+            self.get_T2[spectrum] = get_reduction(
                 reduction_output=spectrum,
                 functor="TSquared_Functor",
                 input_args="FLUCS_COMPLEX*",
                 complex_output=False,
+            ) if spectrum != "kxkykz" else get_reduction(
+                "TSquared_Functor", "FLUCS_COMPLEX*"
             )
 
         if self.save_3d:

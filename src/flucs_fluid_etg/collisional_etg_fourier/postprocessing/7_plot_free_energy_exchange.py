@@ -1,4 +1,8 @@
-"""Plot spectral free-energy injection, dissipation and nonlinear exchange."""
+"""Plot 1-D spectral free-energy exchange terms.
+
+The diagnostic also supports the two-dimensional ``kzkperp`` output, but it
+is intentionally excluded here because this module plots only 1-D spectra.
+"""
 
 import argparse
 import pathlib as pl
@@ -57,14 +61,32 @@ def _load(post, nc_path, dimension, fraction, groups):
 
         time = post.load_netcdf_variable(nc_path, "time", groups=groups)[0]
         first = int((1.0 - fraction) * len(time))
-        loaded[name] = np.nanmean(data[first:], axis=0)
+        loaded[name] = data
 
-    loaded["nl"] = (
-        loaded["dWdt"]
-        - loaded["dWdt_inj"]
-        - loaded["dWdt_coll"]
-        - loaded["dWdt_hyperdissipation"]
-    )
+    nonlinear_variable = prefix + "dWdt_nonlinear"
+    nonlinear_paths = post.get_valid_netcdf_paths(nonlinear_variable)
+    if nc_path in nonlinear_paths:
+        nonlinear = post.load_netcdf_variable(
+            nc_path, nonlinear_variable, groups=groups
+        )[0]
+        if nonlinear.shape[0] == len(time) and all(
+            value.shape[0] == len(time) for value in loaded.values()
+        ):
+            loaded["nl"] = nonlinear
+        else:
+            nonlinear = None
+    else:
+        nonlinear = None
+
+    if nonlinear is None:
+        loaded["nl"] = (
+            loaded["dWdt"]
+            - loaded["dWdt_inj"]
+            - loaded["dWdt_coll"]
+            - loaded["dWdt_hyperdissipation"]
+        )
+
+    loaded = {name: np.nanmean(value[first:], axis=0) for name, value in loaded.items()}
     if dimension in ("kx", "kz"):
         wavenumber, _ = _fold_signed(wavenumber, loaded["dWdt"])
         for name, value in loaded.items():
@@ -187,7 +209,7 @@ def plot_free_energy_exchange(post, fraction=0.2, groups=None, dimensions=None):
     if not nc_paths:
         raise ValueError("No spectral free-energy diagnostics were found.")
 
-    single_file = len(nc_paths) == 1
+    single_file = False #len(nc_paths) == 1
     file_colours = plt.cm.rainbow(np.linspace(0.0, 1.0, len(nc_paths)))
     figures = []
     plot_groups = []

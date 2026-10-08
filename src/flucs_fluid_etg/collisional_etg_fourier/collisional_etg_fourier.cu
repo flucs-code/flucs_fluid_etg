@@ -209,6 +209,32 @@ struct FreeEnergy_Functor {
     }
 };
 
+struct FreeEnergyNonlinear_Functor {
+    const FLUCS_COMPLEX* __restrict__ fields;
+    const FLUCS_FLOAT dt;
+    const FLUCS_FLOAT current_time;
+    const long long current_step;
+    const FLUCS_COMPLEX (* __restrict__ dft_bits)[HALFSIZE];
+
+    __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
+        const FLUCS_COMPLEX T = fields[index + HALFSIZE];
+        FLUCS_COMPLEX nonlinear_terms[NUMBER_OF_FIELDS] = {0};
+        add_nonlinear_terms(
+            index,
+            dt,
+            current_time,
+            current_step,
+            dft_bits,
+            nonlinear_terms
+        );
+
+        return (FLUCS_FLOAT)(3.0 / 2.0) * (
+            T.real() * nonlinear_terms[1].real()
+            + T.imag() * nonlinear_terms[1].imag()
+        );
+    }
+};
+
 // Spectral diagnostics.  The reductions account for the omitted negative-ky
 // half of the real-to-complex transform when appropriate.
 struct PhiSquared_Functor {
