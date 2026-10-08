@@ -93,7 +93,7 @@ class CollisionalETGFourier(FourierSystem):
             memory_dict: dict,
         ) -> None:
             self.find_derivatives_kernel(
-                self.float(current_time),
+                self.time_float(current_time),
                 fields,
                 memory_dict["first_intermediates_fourier"],
             )

@@ -20,7 +20,7 @@ extern "C" {
 __device__ void get_linear_matrix(
     const size_t index, 
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step, 
     FLUCS_COMPLEX matrix[NUMBER_OF_FIELDS][NUMBER_OF_FIELDS]
 ){
@@ -59,7 +59,7 @@ __device__ void get_linear_matrix(
 }
 
 __global__ void find_derivatives(
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     FLUCS_COMPLEX fields[NUMBER_OF_FIELDS][HALFSIZE],
     FLUCS_COMPLEX dft_derivatives[NUMBER_OF_DFT_DERIVATIVES][HALFSIZE]
 ) {
@@ -127,7 +127,7 @@ __global__ void find_nonlinear_bits(
 __device__ void add_nonlinear_terms(
     const size_t index,
     const FLUCS_FLOAT dt,
-    const FLUCS_FLOAT current_time,
+    const double current_time,
     const long long current_step,
     const FLUCS_COMPLEX dft_bits_global[NUMBER_OF_DFT_BITS][HALFSIZE],
     FLUCS_COMPLEX explicit_terms[NUMBER_OF_FIELDS]
