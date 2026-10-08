@@ -209,16 +209,18 @@ def plot_free_energy_exchange(post, fraction=0.2, groups=None, dimensions=None):
     if not nc_paths:
         raise ValueError("No spectral free-energy diagnostics were found.")
 
-    single_file = False #len(nc_paths) == 1
+    single_file = len(nc_paths) == 1
     file_colours = plt.cm.rainbow(np.linspace(0.0, 1.0, len(nc_paths)))
     figures = []
     plot_groups = []
     if single_file:
-        fig, ax = _new_figure("Free-energy exchange: kx and ky")
-        figures.append((fig, "free_energy_exchange_kx_ky"))
-        plot_groups.extend(
-            (ax, dimension) for dimension in ("kx", "ky") if dimension in dimensions
-        )
+        fig, ax = _new_figure("Free-energy exchange: ky")
+        figures.append((fig, "free_energy_exchange_ky"))
+        plot_groups.append((ax, "ky"))
+        fig, ax = _new_figure("Free-energy exchange: kx ")
+        figures.append((fig, "free_energy_exchange_kx"))
+        plot_groups.append((ax, "kx"))
+
     else:
         for dimension in ("kx", "ky"):
             if dimension not in dimensions:
