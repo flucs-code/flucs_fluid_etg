@@ -26,7 +26,9 @@ Usage (in an environment with flucs and flucs_fluid_etg installed)::
 memory of every stage. ``write`` creates RUNS_DIR/kappaN_<value>/stage_<s>/
 with input.toml and job.sh. ``submit`` submits every chain with sbatch, each
 stage depending on the previous one (afterok); --gpus gives one GPU type per
-stage (the last is reused), --dry-run prints the commands only. The job
+stage (the last is reused), --dry-run prints the commands only, and
+--one-at-a-time h200 runs the h200 jobs one at a time across all chains
+(so only one h200 is used), leaving the other GPU types unrestricted. The job
 script reuses the #SBATCH header of SUBMIT_DIR/submit_<gpu>.cmd, copies the
 previous stage's restart.nc in if the stage has none, and runs flucs.
 Every stage uses restart_if_exists, so a resubmitted stage resumes from its
@@ -366,8 +368,13 @@ def submit(args):
             (stage / "job.sh").write_text(script)
 
             command = ["sbatch", "--parsable", f"--chdir={stage}"]
-            if job_id is not None:
-                command.append(f"--dependency=afterok:{job_id}")
+            dependencies = [f"afterok:{job_id}"] if job_id is not None else []
+            if gpu in args.one_at_a_time.split(","):
+                # One job with this name (the #SBATCH --job-name of
+                # submit_<gpu>.cmd) at a time, i.e. one GPU of this type
+                dependencies.append("singleton")
+            if dependencies:
+                command.append("--dependency=" + ",".join(dependencies))
             command.append(str(stage / "job.sh"))
 
             if args.dry_run:
@@ -402,6 +409,12 @@ def main():
     parser.add_argument("--gpus", default="4090,4090,a100,h200")
     parser.add_argument("--submit-dir", default=SUBMIT_DIR)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--one-at-a-time",
+        default="",
+        help="comma-separated GPU types whose jobs run one at a time across "
+        "all chains (sbatch singleton), e.g. h200",
+    )
     args = parser.parse_args()
 
     match args.command:
