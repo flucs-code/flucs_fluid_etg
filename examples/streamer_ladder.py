@@ -24,11 +24,15 @@ Usage (in an environment with flucs and flucs_fluid_etg installed)::
 
 ``plan`` prints ky_I, dT_I, nu_perp, the grid and an estimate of the GPU
 memory of every stage. ``write`` creates RUNS_DIR/kappaN_<value>/stage_<s>/
-with input.toml and job.sh. ``submit`` submits every chain with sbatch, each
-stage depending on the previous one (afterok); --gpus gives one GPU type per
-stage (the last is reused), --dry-run prints the commands only, and
---one-at-a-time h200 runs the h200 jobs one at a time across all chains
-(so only one h200 is used), leaving the other GPU types unrestricted. The job
+with input.toml. ``submit`` writes job.sh and submits with sbatch, stage by
+stage across all chains (all stage 0 first), each stage depending on its
+chain's previous one (afterok). --gpus is the pool of GPU types (names of
+submit_<gpu>.cmd); each job goes to the cheapest GPUs of the pool with
+enough memory, and where every pool type on a partition fits it takes any
+of them (generic gres), so it starts on whichever is free first.
+--one-at-a-time h200 runs the h200 jobs one at a time (one h200 in use),
+and the pool's other types are preferred over it. --dry-run prints the
+commands only. The job
 script reuses the #SBATCH header of SUBMIT_DIR/submit_<gpu>.cmd, copies the
 previous stage's restart.nc in if the stage has none, and runs flucs.
 Every stage uses restart_if_exists, so a resubmitted stage resumes from its
@@ -324,23 +328,112 @@ def stage_dir(root, r):
     return pl.Path(root) / f"kappaN_{r['kappaN']:.3f}" / f"stage_{r['stage']}"
 
 
-def job_script(gpu, args):
-    """#SBATCH header of the user's submit_<gpu>.cmd, then copy and run."""
+# GPU memory per submit_<gpu>.cmd type, GB
+GPU_MEMORY_GB = {
+    "2080": 12,
+    "2080big": 12,
+    "4070": 12,
+    "3090": 24,
+    "4090": 24,
+    "rtx6000": 48,
+    "a100": 80,
+    "h200": 141,
+}
+
+
+def read_header(gpu, args):
+    """Lines of submit_<gpu>.cmd without the final flucs call, and its
+    partition."""
     cmd = pl.Path(args.submit_dir) / f"submit_{gpu}.cmd"
-    lines = cmd.read_text().splitlines()
-    body = [line for line in lines if line.strip() != "flucs"]
-    body += [
+    lines = [line for line in cmd.read_text().splitlines() if line.strip() != "flucs"]
+    partition = next(
+        (
+            line.split("=", 1)[1].strip()
+            for line in lines
+            if line.startswith("#SBATCH --partition")
+        ),
+        None,
+    )
+    return lines, partition
+
+
+def choose_gpus(memory_GB, args):
+    """
+    The cheapest way to run a job of memory_GB from the GPU pool: a list of
+    the pool's GPU types it may use, all on one partition. Where every pool
+    type on a partition fits, the job may take any of them (generic gres),
+    so Slurm starts it on whichever is free first.
+    """
+    pool = args.gpus.split(",")
+    by_partition = {}
+    for gpu in pool:
+        by_partition.setdefault(read_header(gpu, args)[1], []).append(gpu)
+
+    options = []
+    for gpus in by_partition.values():
+        fitting = [g for g in gpus if GPU_MEMORY_GB[g] >= memory_GB]
+        if not fitting:
+            continue
+        if len(fitting) == len(gpus):
+            options.append(fitting)
+        # Otherwise only the fitting types, one at a time (no generic gres)
+        options += [[g] for g in fitting if len(fitting) < len(gpus)]
+
+    if not options:
+        return None
+
+    # Prefer unrestricted GPUs, then more GPUs to choose from, then less memory
+    restricted = set(args.one_at_a_time.split(","))
+    return min(
+        options,
+        key=lambda gpus: (
+            any(g in restricted for g in gpus),
+            -len(gpus),
+            max(GPU_MEMORY_GB[g] for g in gpus),
+        ),
+    )
+
+
+def job_script(gpus, previous, args):
+    """
+    #SBATCH header of submit_<gpus[0]>.cmd, with a generic GPU request when
+    several types are allowed, then copy the previous restart file and run.
+    """
+    lines, _ = read_header(gpus[0], args)
+    if len(gpus) > 1:
+        lines = [
+            "#SBATCH --gres=gpu:1" if line.startswith("#SBATCH --gres=gpu:") else line
+            for line in lines
+        ]
+        name = "flucs_" + "_".join(gpus)
+        lines = [
+            f"#SBATCH --job-name={name}"
+            if line.startswith("#SBATCH --job-name")
+            else line
+            for line in lines
+        ]
+    lines += [
         "",
+        f"# GPU types allowed: {', '.join(gpus)}",
         "# Start from the previous stage unless this stage has a restart file",
-        "if [ ! -f restart.nc ] && [ -f ../PREVIOUS/restart.nc ]; then",
-        "    cp ../PREVIOUS/restart.nc restart.nc",
-        '    echo "Copied ../PREVIOUS/restart.nc"',
+        f"if [ ! -f restart.nc ] && [ -f ../{previous}/restart.nc ]; then",
+        f"    cp ../{previous}/restart.nc restart.nc",
+        f'    echo "Copied ../{previous}/restart.nc"',
         "fi",
         "",
         "flucs",
         "",
     ]
-    return "\n".join(body)
+    return "\n".join(lines)
+
+
+def stage_memory_GB(stage):
+    """Memory estimate of a written stage, from its grid."""
+    import toml
+
+    dealiasing = toml.load(stage / "input.toml")["dealiasing"]
+    points = padded(dealiasing["nx_unpadded"]) ** 2 * padded(dealiasing["nz_unpadded"])
+    return OVERHEAD_GB + BYTES_PER_POINT * points / 1e9
 
 
 def write(args):
@@ -354,22 +447,41 @@ def write(args):
 
 
 def submit(args):
-    gpus = args.gpus.split(",")
+    """
+    Submits stage by stage across all chains, so that every chain's stage 0
+    is queued before any stage 1, and so on. Each stage depends on its
+    chain's previous stage.
+    """
     root = pl.Path(args.runs_dir)
-    for chain in sorted(root.glob("kappaN_*")):
-        stages = sorted(chain.glob("stage_*"), key=lambda p: int(p.name.split("_")[1]))
-        job_id = None
-        for stage in stages:
-            index = int(stage.name.split("_")[1])
-            gpu = gpus[min(index, len(gpus) - 1)]
-            script = job_script(gpu, args).replace(
-                "PREVIOUS", f"stage_{index - 1}" if index > 0 else "NONE"
-            )
-            (stage / "job.sh").write_text(script)
+    chains = sorted(root.glob("kappaN_*"))
+    n_stages = max(len(list(chain.glob("stage_*"))) for chain in chains)
+    restricted = set(args.one_at_a_time.split(","))
+    job_ids = {}
+
+    for index in range(n_stages):
+        for chain in chains:
+            stage = chain / f"stage_{index}"
+            if not stage.exists():
+                continue
+
+            memory = stage_memory_GB(stage)
+            gpus = choose_gpus(memory, args)
+            if gpus is None:
+                print(
+                    f"{chain.name}/{stage.name}: no GPU in --gpus fits "
+                    f"{memory:.0f} GB; not submitted (nor are its later stages)"
+                )
+                job_ids[chain] = None
+                continue
+            if index > 0 and job_ids.get(chain) is None:
+                continue
+
+            previous = f"stage_{index - 1}" if index > 0 else "NONE"
+            (stage / "job.sh").write_text(job_script(gpus, previous, args))
 
             command = ["sbatch", "--parsable", f"--chdir={stage}"]
-            dependencies = [f"afterok:{job_id}"] if job_id is not None else []
-            if gpu in args.one_at_a_time.split(","):
+            dependencies = [f"afterok:{job_ids[chain]}"] if index > 0 else []
+            if restricted & set(gpus):
                 # One job with this name (the #SBATCH --job-name of
                 # submit_<gpu>.cmd) at a time, i.e. one GPU of this type
                 dependencies.append("singleton")
@@ -377,14 +489,15 @@ def submit(args):
                 command.append("--dependency=" + ",".join(dependencies))
             command.append(str(stage / "job.sh"))
 
+            label = f"{chain.name}/{stage.name} ({memory:.0f} GB, {'|'.join(gpus)})"
             if args.dry_run:
-                print(" ".join(command))
-                job_id = f"<{chain.name}/{stage.name}>"
+                print(f"{label}: {' '.join(command)}")
+                job_ids[chain] = f"<{chain.name}/{stage.name}>"
                 continue
 
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            job_id = result.stdout.strip().split(";")[0]
-            print(f"{chain.name}/{stage.name} on {gpu}: job {job_id}")
+            job_ids[chain] = result.stdout.strip().split(";")[0]
+            print(f"{label}: job {job_ids[chain]}")
 
 
 def main():
@@ -406,7 +519,7 @@ def main():
     parser.add_argument(
         "--stage-time-gamma", type=float, nargs="+", default=list(STAGE_TIME_GAMMA)
     )
-    parser.add_argument("--gpus", default="4090,4090,a100,h200")
+    parser.add_argument("--gpus", default="rtx6000,a100,h200")
     parser.add_argument("--submit-dir", default=SUBMIT_DIR)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
