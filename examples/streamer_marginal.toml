@@ -1,0 +1,95 @@
+# Marginal collisional ETG run started in (or held at) the expected streamer.
+#
+# Parameters match the curvy3d run
+#   visc_scan_45/kappaT1.00_kappaN0.45_perpvisc0.000001_Lx20_Ly20_Lz20_nx323_ny323_nz47
+# (Lambda = 0.5641905229536246 - kappaN/kappaT = 0.114). The equations are the
+# same in both codes; curvy3d's perpendicular viscosity nu_perp kperp^4 is
+# hyperdissipation.kperp = nu_perp with kperp_power = 2 and
+# kperp_normalised = false (true would normalise kperp to the grid scale).
+#
+# Run with: flucs --run -io <directory holding this file as input.toml>
+
+[setup]
+solver = "FourierSolver"
+system = "CollisionalETGFourier"
+linear = false
+precision = "single"
+
+[restart]
+write_restart_file = true
+restart_if_exists = true
+write_steps = 20000
+
+[dimensions]
+Lx = 20.0
+Ly = 20.0
+Lz = 20.0
+
+# curvy3d's unpadded grid (it pads by 3/2 to 486 x 486 x 72, as here)
+[dealiasing]
+method = "two-thirds"
+nx_unpadded = 323
+ny_unpadded = 323
+nz_unpadded = 47
+
+[time]
+dt_max = 0.05
+max_cfl = 0.8
+tfinal = 3000.0
+
+[timestepping]
+method = "rk4"
+
+[parameters]
+kappaT = 1.0
+kappaN = 0.45
+
+[hyperdissipation]
+kperp = 1e-6
+kperp_power = 2
+kperp_normalised = false
+
+[parameters.streamer]
+# "free" starts at the expected streamer; "frozen" also holds set I fixed,
+# which measures Pi_sf and W_II at fixed (dT_I, ky_I, nu_perp, Lambda)
+mode = "free"
+
+# ky_I = 0.85 ky_peak, ky_peak maximising gamma_lin/ky (the default); here
+# iky = 10, ky_I = pi, the streamer of the curvy3d run
+ky_over_kpeak = 0.85
+cutoff_factor = 2.0
+
+# dT_I = C_T gamma_lin(ky_I)/ky_I = 0.287 (C_T ~ 13 +- 20% in curvy3d)
+amplitude_mode = "predicted"
+C_T = 13.0
+
+# Measured in saturated flucs runs: equal power at kz = +-2 pi/Lz
+kz_structure = "both"
+kz_phase = 0.0
+
+kx_width = 0.0
+
+# Set-II seed: flat in (kx, ky), |m|^-3 over the parallel harmonics with 60%
+# at kz = 0, total W_II from the curvy3d prediction (a); the defaults
+seed_mode = "predicted"
+C_W = 158.0
+seed_kz_power = -3.0
+seed_kz0_fraction = 0.6
+
+[output]
+write_steps = 50000
+
+[output.0d]
+save_steps = 100
+diags = [
+    {name = "heatflux"},
+    {name = "free_energy"},
+    {name = "streamer_exchange", options = {spectra = []}},
+]
+
+[output.spectra]
+save_steps = 2000
+diags = [
+    {name = "streamer_exchange", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
+    {name = "spectra", options = {spectra = ["kx", "ky", "kz", "kperp"]}},
+]

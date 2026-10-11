@@ -1,0 +1,79 @@
+# Tiny streamer test: 15 x 15 box, kappaN = 0.5 (Lambda = 0.064), 49 x 49 x 15
+# solved modes, a few minutes on a small GPU. nu_perp is set so that the grid
+# reaches kmax = 0.6 k_d, k_d = (dT_I ky_I / nu_perp)^(1/3), i.e.
+# k_d / ky_I = 4.8 here. Generated with
+#   python streamer_ladder.py write DIR --kappaN 0.5 --separations 4.8 \
+#       --nz-unpadded 15 --stage-time-gamma 15
+# Run with: flucs (in a directory holding this file as input.toml)
+#
+
+[setup]
+solver = "FourierSolver"
+system = "CollisionalETGFourier"
+linear = false
+precision = "single"
+
+[restart]
+write_restart_file = true
+restart_if_exists = true
+write_steps = 5000
+
+[dimensions]
+Lx = 15.0
+Ly = 15.0
+Lz = 20.0
+
+[dealiasing]
+method = "two-thirds"
+nx_unpadded = 49
+ny_unpadded = 49
+nz_unpadded = 15
+
+[time]
+dt_max = 0.05
+max_cfl = 0.8
+tfinal = 437.9
+
+[timestepping]
+method = "rk4"
+
+[parameters]
+kappaT = 1.0
+kappaN = 0.5
+
+[hyperdissipation]
+kperp = 1.070083e-04
+kperp_power = 2
+kperp_normalised = false
+
+# Used for the initial condition of stage 0 only (later stages restart); it
+# also fixes the streamer ky of the streamer_exchange diagnostic
+[parameters.streamer]
+mode = "free"
+ky_over_kpeak = 0.85
+cutoff_factor = 2.0
+amplitude_mode = "predicted"
+C_T = 13.0
+kz_structure = "both"
+kx_width = 0.0
+seed_mode = "predicted"
+seed_kz_power = -3.0
+seed_kz0_fraction = 0.6
+
+[output]
+write_steps = 5000
+
+[output.0d]
+save_steps = 100
+diags = [
+    {name = "heatflux"},
+    {name = "free_energy"},
+    {name = "streamer_exchange", options = {spectra = []}},
+]
+
+[output.spectra]
+save_steps = 2000
+diags = [
+    {name = "streamer_exchange", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
+    {name = "spectra", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
+]

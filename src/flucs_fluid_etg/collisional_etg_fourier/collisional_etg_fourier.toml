@@ -28,6 +28,63 @@ cutoff_ikx = 1
 cutoff_iky = 1
 cutoff_ikz = 1
 
+[parameters.streamer]
+# Initialise into (and optionally hold) the most unstable linear eigenmode at
+# kx = 0, kz = +-2 pi/Lz and a chosen ky. Set I (the streamer) is the modes
+# with kz = +-2 pi/Lz and kperp < cutoff_factor * ky; set II is all the rest.
+# A restart file takes precedence over the initial condition.
+#
+# mode = "" does nothing, "free" sets the initial condition only and
+# "frozen" also holds the set-I modes fixed at every time step.
+mode = ""
+
+# Streamer ky, snapped to the nearest box harmonic. By default
+# ky = ky_over_kpeak * ky_peak, where ky_peak maximises the inviscid
+# gamma_lin/ky at kx = 0, kz = 2 pi/Lz; 0.85 matches the saturated curvy3d
+# streamers. At most one of iky (box harmonic index), ky, or ky_over_kmarg
+# (multiple of the lowest unstable ky) overrides it. A linearly stable
+# choice is an error.
+ky_over_kpeak = 0.85
+iky = -1
+ky = -1.0
+ky_over_kmarg = -1.0
+
+# Set I cut-off, kc = cutoff_factor * ky
+cutoff_factor = 2.0
+
+# Amplitude. "explicit" uses dT_amplitude, the real-space RMS of dT over set
+# I, <dT_I^2>^(1/2). "predicted" uses dT_I = C_T * gamma_lin / ky, with
+# gamma_lin the inviscid growth rate at kx = 0, kz = 2 pi/Lz.
+amplitude_mode = "explicit"
+dT_amplitude = -1.0
+C_T = 13.0
+
+# Parallel structure: "both" puts equal amplitudes at kz = +-2 pi/Lz (a
+# standing wave along z), "plus" only kz = +2 pi/Lz (a travelling wave).
+# kz_phase is the phase of the kz = -2 pi/Lz component relative to +2 pi/Lz.
+kz_structure = "both"
+kz_phase = 0.0
+
+# Gaussian amplitude envelope exp(-kx^2 / (2 kx_width^2)) across the set-I kx
+# harmonics, each with its own eigenvector. 0 gives a single kx = 0 mode.
+kx_width = 0.0
+
+# Noise on the set-II modes (both fields, random phases), flat in (kx, ky).
+# Its free energy per folded parallel harmonic m (kz = +-2 pi m/Lz) goes as
+# |m|^seed_kz_power for m >= 1, with seed_kz0_fraction of it at kz = 0
+# (curvy3d: 0.54-0.79 at kz = 0, 98% within |m| <= 5).
+# seed_mode = "predicted" sets the total from prediction (a) of the curvy3d
+# runs, W_II = C_W gamma_lin dT_I^(2/3) nu_perp^(1/3) / ky_I^(4/3) in curvy3d
+# units (twice flucs' W), with nu_perp = hyperdissipation.kperp (needs
+# kperp_power = 2, unnormalised, not adaptive). seed_mode = "fraction" sets
+# the real-space RMS of dT over set II to seed_fraction * dT_I.
+seed_mode = "predicted"
+C_W = 158.0
+seed_fraction = 1e-3
+seed_kz_power = -3.0
+seed_kz0_fraction = 0.6
+rand_seed = 271
+
 
 
 # spectral diagnostics
