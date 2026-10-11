@@ -61,6 +61,7 @@ STAGE_TIME_GAMMA = (40.0, 15.0)
 # the time step falls roughly as 1/kmax
 SAVE_STEPS_0D = 100
 SAVE_STEPS_SPECTRA = 2000
+SAVE_STEPS_REALSPACE = 20000
 RESTART_STEPS = 5000
 
 # GPU memory estimate, bytes per padded grid point (single precision) and
@@ -261,6 +262,14 @@ save_steps = {SAVE_STEPS_SPECTRA * scale}
 diags = [
     {{name = "streamer_exchange", options = {{spectra = ["kx", "ky", "kz", "kperp", "kxky"]}}}},
     {{name = "spectra", options = {{spectra = ["kx", "ky", "kz", "kperp", "kxky"]}}}},
+    {{name = "spectral_free_energy", options = {{spectra = ["kx", "ky", "kz", "kperp", "kxky"]}}}},
+]
+
+# Real-space snapshots of (phi, dT) in the planes z = 0 and x = 0
+[output.realspace]
+save_steps = {SAVE_STEPS_REALSPACE * scale}
+diags = [
+    {{name = "realspace_data", options = {{locations = [":, 0, :, :", ":, :, 0, :"]}}}},
 ]
 """
 

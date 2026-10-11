@@ -76,4 +76,12 @@ save_steps = 2000
 diags = [
     {name = "streamer_exchange", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
     {name = "spectra", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
+    {name = "spectral_free_energy", options = {spectra = ["kx", "ky", "kz", "kperp", "kxky"]}},
+]
+
+# Real-space snapshots of (phi, dT) in the planes z = 0 and x = 0
+[output.realspace]
+save_steps = 20000
+diags = [
+    {name = "realspace_data", options = {locations = [":, 0, :, :", ":, :, 0, :"]}},
 ]
