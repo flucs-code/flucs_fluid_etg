@@ -11,3 +11,21 @@ coeffa = -1.0
 coeffb = -1.0
 coeffc = -1.0
 
+[parameters.frozen]
+# freeze wavenumber reion and add an initial streamer condition
+# if amplitude < 0 do nothing
+amplitude = -1.0 # amplitude of T field of streamer
+
+# create a streamer at the box size
+use_eigenmode = true # if false use the below quantities to define streamer
+streamer_ratio = 1.0 # abs(phi/T)
+streamer_phase = 0.0 # arg(phi/T)
+# pi = 3.1415926
+
+# Region of wavenumber-space that is kept frozen
+# if ik<=cutoff, rollback each timestep in those regions
+cutoff_ikx = 1
+cutoff_iky = 1
+cutoff_ikz = 1
+
+

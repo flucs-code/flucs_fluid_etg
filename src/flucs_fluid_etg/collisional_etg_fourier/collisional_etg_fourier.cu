@@ -139,6 +139,37 @@ __device__ void add_nonlinear_terms(
 
 }
 
+
+#ifdef COMPLETE_TIMESTEP
+__device__ __forceinline__
+void complete_finish_step(
+    const size_t index,
+    const FLUCS_FLOAT dt,
+    const FLUCS_FLOAT current_time,
+    const long long current_step,
+    const FLUCS_COMPLEX previous_fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE],
+    FLUCS_COMPLEX current_fields_global[NUMBER_OF_FIELDS][HALFUNPADDEDSIZE]
+) {
+    indices3d_t indices = get_indices3d<NZ, NX, HALF_NY>(index);
+    const size_t ikx = indices.ikx;
+    const size_t iky = indices.iky;
+    const size_t ikz = indices.ikz;
+
+    const size_t abs_ikx = (ikx < HALF_NX) ? ikx : NX - ikx;  
+    const size_t abs_ikz = (ikz < HALF_NZ) ? ikz : NZ - ikz;  
+
+    if (abs_ikz <= FROZEN_CUTOFF_IKZ
+        && abs_ikx <= FROZEN_CUTOFF_IKX
+        && iky <= FROZEN_CUTOFF_IKY) {
+
+        current_fields_global[0][index] = previous_fields_global[0][index];
+        current_fields_global[1][index] = previous_fields_global[1][index];
+    }
+
+}
+#endif
+
+
 struct Heatflux_Functor {
     const FLUCS_COMPLEX* __restrict__ fields;
     __device__ __forceinline__ FLUCS_FLOAT operator()(size_t index) const {
